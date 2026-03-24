@@ -1,0 +1,18 @@
+{
+  "name": "dice-telegram-bot",
+  "version": "1.0.0",
+  "description": "Telegram Dice Game Bot with Firebase",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "nodemon bot.js"
+  },
+  "dependencies": {
+    "node-telegram-bot-api": "^0.66.0",
+    "firebase-admin": "^12.0.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
