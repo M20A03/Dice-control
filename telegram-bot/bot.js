@@ -260,13 +260,17 @@ bot.on('message', async (msg) => {
         console.log(`Could not find user by telegramId: ${telegramId}`);
       }
 
-      let isWin;
-      
-      // If admin set a forced outcome, check if user's roll matches
+      // Send result message to Telegram chat
       if (forcedOutcome && Number(forcedOutcome) >= 1 && Number(forcedOutcome) <= 6) {
-        // For forced outcomes, only count as win if user rolled the forced number
-        isWin = (result === Number(forcedOutcome));
-        console.log(`✅ Forced outcome ${forcedOutcome} - User rolled ${result} - Win: ${isWin}`);
+        // Show dice result and forced outcome
+        const diceEmoji = { 1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅' };
+        await bot.sendMessage(
+          chatId,
+          `🎲 @${username}: You rolled **${diceEmoji[result]}** (${result})\n📌 Forced outcome: **${diceEmoji[forcedOutcome]}** (${forcedOutcome})`,
+          { parse_mode: 'Markdown' }
+        );
+        
+        console.log(`📨 Sent result message - User rolled ${result}, Forced outcome ${forcedOutcome}`);
         
         // Clear forced outcome after use
         if (uid) {
@@ -274,15 +278,22 @@ bot.on('message', async (msg) => {
           userCache.delete(`user_${telegramId}`);
         }
       } else {
-        // Normal roll: Win if >= 4
-        isWin = result >= 4;
+        // No forced outcome - just show what they rolled
+        const diceEmoji = { 1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅' };
+        await bot.sendMessage(
+          chatId,
+          `🎲 @${username}: You rolled **${diceEmoji[result]}** (${result})`,
+          { parse_mode: 'Markdown' }
+        );
+        
+        console.log(`📨 Sent result message - User rolled ${result}`);
       }
-
-      // Update stats in Firebase (will show on website)
+      
+      // Update stats in Firebase
+      let isWin = forcedOutcome ? (result === Number(forcedOutcome)) : (result >= 4);
       await updateUserStats(telegramId, username, result, isWin);
       
-      console.log(`📊 Stats updated for ${username}: Result=${result}, Win=${isWin}`);
-      // NO MESSAGE SENT TO TELEGRAM - User sees outcome on website instead!
+      console.log(`📊 Stats updated for ${username}: Result=${result}`);
 
     } catch (err) {
       console.error('Dice roll error:', err);
