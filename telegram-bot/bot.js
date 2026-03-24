@@ -278,28 +278,24 @@ bot.on('message', async (msg) => {
         isWin = result >= 4;
       }
 
-      // Update stats
+      // Update stats in Firebase (will show on website)
       await updateUserStats(telegramId, username, result, isWin);
       
-      // Send result message
-      const resultMessage = isWin 
-        ? `🎉 *${username}* rolled **${result}** — **WIN!** +10 🪙`
-        : `😢 *${username}* rolled **${result}** — Better luck next time!`;
-      
-      bot.sendMessage(chatId, resultMessage, { parse_mode: 'Markdown' });
+      console.log(`📊 Stats updated for ${username}: Result=${result}, Win=${isWin}`);
+      // NO MESSAGE SENT TO TELEGRAM - User sees outcome on website instead!
 
     } catch (err) {
       console.error('Dice roll error:', err);
-      bot.sendMessage(chatId, '❌ Error processing your dice roll.');
+      // Silent error - don't spam Telegram chat
     }
   }
   
-  // Also handle text commands "Dice"
+  // Handle text commands
   if (msg.text && msg.text.toLowerCase().includes('dice') && !msg.dice) {
     const chatId = msg.chat.id;
     await bot.sendMessage(
       chatId,
-      '🎲 *Send the 🎲 emoji directly* to roll the dice!\n\nYour Telegram will animate it automatically.',
+      '🎲 *Send the 🎲 emoji directly* to roll the dice!\n\nYour results will appear on your website dashboard.',
       { parse_mode: 'Markdown' }
     );
   }
