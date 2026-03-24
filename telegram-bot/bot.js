@@ -68,6 +68,13 @@ const bot = new TelegramBot(TOKEN, { polling: true });
 console.log('✅ Telegram bot started - monitoring groups for Dice commands');
 console.log(`🤖 Bot Token: ${TOKEN.substring(0, 10)}...`);
 
+// Log all incoming messages for debugging
+bot.on('message', (msg) => {
+  if (msg.text) {
+    console.log(`📨 Message from ${msg.from.username || msg.from.first_name}: "${msg.text}"`);
+  }
+});
+
 // Listen for OTP requests from the web frontend
 console.log('👀 Listening for OTP verification requests...');
 db.collection('otpVerification').onSnapshot((snapshot) => {
@@ -227,10 +234,13 @@ bot.onText(/\/start/, async (msg) => {
 });
 
 // Dice command - MAIN DICE GAME
-bot.onText(/Dice|🎲/i, async (msg) => {
+// Matches: "Dice", "dice", "🎲", or just dice emoji
+bot.onText(/[Dd]ice|🎲|^🎲$/i, async (msg) => {
   const chatId = msg.chat.id;
   const telegramId = String(msg.from.id);
   const username = msg.from.username || msg.from.first_name || 'Player';
+  
+  console.log(`🎲 Dice command received from ${username} (${telegramId}): "${msg.text}"`);
 
   try {
     // Always fetch fresh forced outcome from Firebase (bypass cache)
