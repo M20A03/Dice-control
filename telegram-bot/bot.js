@@ -4,20 +4,63 @@ const admin = require('firebase-admin');
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-    }),
-  });
+  // Handle private key - support multiple formats
+  let privateKey = process.env.FIREBASE_PRIVATE_KEY || '';
+  
+  // Remove quotes if present
+  if (privateKey.startsWith('"') && privateKey.endsWith('"')) {
+    privateKey = privateKey.slice(1, -1);
+  }
+  
+  // Convert escaped newlines to actual newlines
+  // Support both \n and literal newlines
+  privateKey = privateKey
+    .replace(/\\n/g, '\n')  // Handle escaped newlines
+    .replace(/\\r/g, '\r')  // Handle escaped carriage returns
+    .trim();
+  
+  // Ensure key starts and ends with markers
+  if (!privateKey.includes('BEGIN PRIVATE KEY')) {
+    console.error('❌ Invalid Firebase private key format - missing BEGIN PRIVATE KEY');
+    process.exit(1);
+  }
+  
+  try {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: privateKey,
+      }),
+    });
+    console.log('✅ Firebase Admin SDK initialized successfully');
+  } catch (error) {
+    console.error('❌ Firebase initialization failed:', error.message);
+    console.error('🔍 Debugging info:');
+    console.error('   - FIREBASE_PROJECT_ID:', process.env.FIREBASE_PROJECT_ID ? '✓' : '✗ Missing');
+    console.error('   - FIREBASE_CLIENT_EMAIL:', process.env.FIREBASE_CLIENT_EMAIL ? '✓' : '✗ Missing');
+    console.error('   - FIREBASE_PRIVATE_KEY length:', privateKey.length);
+    console.error('   - Key starts with:', privateKey.substring(0, 30));
+    process.exit(1);
+  }
 }
 
 const db = admin.firestore();
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
+// Validate all required environment variables
 if (!TOKEN) {
-  console.error('❌ TELEGRAM_BOT_TOKEN not set in .env');
+  console.error('❌ TELEGRAM_BOT_TOKEN not set in environment');
+  process.exit(1);
+}
+
+if (!process.env.FIREBASE_PROJECT_ID) {
+  console.error('❌ FIREBASE_PROJECT_ID not set');
+  process.exit(1);
+}
+
+if (!process.env.FIREBASE_CLIENT_EMAIL) {
+  console.error('❌ FIREBASE_CLIENT_EMAIL not set');
   process.exit(1);
 }
 
@@ -328,11 +371,21 @@ bot.onText(/\/help/, (msg) => {
 
 // Error handling
 bot.on('polling_error', (error) => {
-  console.error('Polling error:', error);
+  console.error('❌ Polling error:', error.message);
+  // Bot will automatically retry
 });
 
 process.on('uncaughtException', (error) => {
-  console.error('Uncaught error:', error);
+  console.error('❌ Uncaught exception:', error.message);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled rejection at:', promise, 'reason:', reason);
+  // Continue running - don't exit on unhandled rejection
 });
 
 console.log('🤖 Bot ready! Add to groups and type Dice to play.');
+console.log('📊 Monitoring Firestore for OTP verification requests...');
+console.log('💾 Connected to Firebase Firestore');
+console.log('🎲 Listening for Dice commands in groups...');
