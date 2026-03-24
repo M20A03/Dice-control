@@ -233,78 +233,75 @@ bot.onText(/\/start/, async (msg) => {
   }
 });
 
-// Dice command - MAIN DICE GAME
-// Matches: "Dice", "dice", "🎲", or just dice emoji
-bot.onText(/[Dd]ice|🎲|^🎲$/i, async (msg) => {
-  const chatId = msg.chat.id;
-  const telegramId = String(msg.from.id);
-  const username = msg.from.username || msg.from.first_name || 'Player';
-  
-  console.log(`🎲 Dice command received from ${username} (${telegramId}): "${msg.text}"`);
+// Listen for user's dice rolls (user sends dice emoji, Telegram animates it on their side)
+bot.on('message', async (msg) => {
+  // Check if the message contains a dice emoji
+  if (msg.dice) {
+    const chatId = msg.chat.id;
+    const telegramId = String(msg.from.id);
+    const username = msg.from.username || msg.from.first_name || 'Player';
+    const result = msg.dice.value; // The dice value (1-6) from user's roll
 
-  try {
-    // Always fetch fresh forced outcome from Firebase (bypass cache)
-    let forcedOutcome = null;
-    let uid = null;
-    
+    console.log(`🎲 User ${username} (${telegramId}) rolled: ${result}`);
+
     try {
-      const q = db.collection('users').where('telegramId', '==', String(telegramId));
-      const snapshot = await q.get();
-      if (!snapshot.empty) {
-        uid = snapshot.docs[0].id;
-        forcedOutcome = snapshot.docs[0].data().forcedOutcome;
-      }
-    } catch (e) {
-      console.log(`Could not find user by telegramId: ${telegramId}`);
-    }
-
-    let result;
-    let isWin;
-
-    // Check for admin-set forced outcome
-    if (forcedOutcome && Number(forcedOutcome) >= 1 && Number(forcedOutcome) <= 6) {
-      result = Number(forcedOutcome);
+      // Always fetch fresh forced outcome from Firebase (bypass cache)
+      let forcedOutcome = null;
+      let uid = null;
       
-      // MAGIC TRICK: Roll the real animated dice until it hits the forced number!
-      // Warning: People might see notifications flickering as it deletes the wrong ones quickly.
-      let matchFound = false;
-      for (let i = 0; i < 20; i++) {
-        const diceMsg = await bot.sendDice(chatId);
-        if (diceMsg.dice.value === result) {
-          matchFound = true;
-          break; // We got the right number!
+      try {
+        const q = db.collection('users').where('telegramId', '==', String(telegramId));
+        const snapshot = await q.get();
+        if (!snapshot.empty) {
+          uid = snapshot.docs[0].id;
+          forcedOutcome = snapshot.docs[0].data().forcedOutcome;
         }
-        // If it's the wrong number, delete it instantly and try again
-        await bot.deleteMessage(chatId, diceMsg.message_id).catch(() => {});
-        // Very small delay to prevent getting blocked by Telegram
-        await new Promise(res => setTimeout(res, 200));
+      } catch (e) {
+        console.log(`Could not find user by telegramId: ${telegramId}`);
       }
 
-      if (!matchFound) {
-         // Fallback if Telegram blocked us from spamming
-         bot.sendMessage(chatId, `🎲 (Server forced roll delayed)`);
+      let isWin;
+      
+      // If admin set a forced outcome, check if user's roll matches
+      if (forcedOutcome && Number(forcedOutcome) >= 1 && Number(forcedOutcome) <= 6) {
+        // For forced outcomes, only count as win if user rolled the forced number
+        isWin = (result === Number(forcedOutcome));
+        console.log(`✅ Forced outcome ${forcedOutcome} - User rolled ${result} - Win: ${isWin}`);
+        
+        // Clear forced outcome after use
+        if (uid) {
+          await db.collection('users').doc(uid).update({ forcedOutcome: null });
+          userCache.delete(`user_${telegramId}`);
+        }
+      } else {
+        // Normal roll: Win if >= 4
+        isWin = result >= 4;
       }
 
-      // Clear forced outcome after use
-      if (uid) {
-        await db.collection('users').doc(uid).update({ forcedOutcome: null });
-        userCache.delete(`user_${telegramId}`); // Clear cache
-        console.log(`✅ Used forced outcome ${result} for ${username} (${telegramId})`);
-      }
-    } else {
-      // NORMAL ROLL: No forced outcome. Send 1 real animated dice.
-      const diceMsg = await bot.sendDice(chatId);
-      result = diceMsg.dice.value; // Read what Telegram randomly decided
+      // Update stats
+      await updateUserStats(telegramId, username, result, isWin);
+      
+      // Send result message
+      const resultMessage = isWin 
+        ? `🎉 *${username}* rolled **${result}** — **WIN!** +10 🪙`
+        : `😢 *${username}* rolled **${result}** — Better luck next time!`;
+      
+      bot.sendMessage(chatId, resultMessage, { parse_mode: 'Markdown' });
+
+    } catch (err) {
+      console.error('Dice roll error:', err);
+      bot.sendMessage(chatId, '❌ Error processing your dice roll.');
     }
-
-    isWin = result >= 4; // Win if >= 4
-
-    // Update stats
-    await updateUserStats(telegramId, username, result, isWin);
-
-  } catch (err) {
-    console.error('Roll error:', err);
-    bot.sendMessage(chatId, '❌ Error rolling dice. Make sure the bot is an admin in the group to use animated dice tricks.');
+  }
+  
+  // Also handle text commands "Dice"
+  if (msg.text && msg.text.toLowerCase().includes('dice') && !msg.dice) {
+    const chatId = msg.chat.id;
+    await bot.sendMessage(
+      chatId,
+      '🎲 *Send the 🎲 emoji directly* to roll the dice!\n\nYour Telegram will animate it automatically.',
+      { parse_mode: 'Markdown' }
+    );
   }
 });
 
