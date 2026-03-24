@@ -4,8 +4,9 @@
   "description": "Telegram Dice Bot with Firebase",
   "main": "telegram-bot/bot.js",
   "scripts": {
-    "start": "cd telegram-bot && node bot.js",
-    "dev": "cd telegram-bot && node bot.js"
+    "start": "cd telegram-bot && npm install && node bot.js",
+    "dev": "cd telegram-bot && node bot.js",
+    "postinstall": "cd telegram-bot && npm install"
   },
   "engines": {
     "node": "18.x"

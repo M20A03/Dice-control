@@ -1,1 +1,1 @@
-web: cd telegram-bot && node bot.js
+web: npm run start
