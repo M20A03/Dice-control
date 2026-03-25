@@ -227,8 +227,8 @@ bot.on('message', async (msg) => {
     console.log(`🎲 User ${username} (${telegramId}) rolled: ${result}`);
 
     try {
-      // Always fetch fresh forced outcome from Firebase (bypass cache)
-      let forcedOutcome = null;
+      // Always fetch fresh outcome queue from Firebase (bypass cache)
+      let outcomeQueue = [];
       let uid = null;
       
       console.log(`\n═══ DICE ROLL DEBUG ═══`);
@@ -242,14 +242,13 @@ bot.on('message', async (msg) => {
         if (!snapshot.empty) {
           uid = snapshot.docs[0].id;
           const userData = snapshot.docs[0].data();
-          forcedOutcome = userData.forcedOutcome;
+          outcomeQueue = userData.outcomeQueue || [];
           
           console.log(`✅ Found user document`);
           console.log(`   - Doc ID (uid): ${uid}`);
           console.log(`   - Stored telegramId: ${userData.telegramId}`);
-          console.log(`   - forcedOutcome value: ${forcedOutcome}`);
-          console.log(`   - forcedOutcome type: ${typeof forcedOutcome}`);
-          console.log(`   - Full user data:`, JSON.stringify(userData));
+          console.log(`   - outcomeQueue: ${JSON.stringify(outcomeQueue)}`);
+          console.log(`   - Queue length: ${outcomeQueue.length}`);
         } else {
           console.log(`❌ User NOT found in database - searching by telegramId=${telegramId}`);
         }
@@ -257,32 +256,26 @@ bot.on('message', async (msg) => {
         console.error(`❌ Error fetching user: ${e.message}`);
       }
 
-      // Use forced outcome if set AND is a valid number (1-6), otherwise use what they rolled
-      let finalOutcome;
-      if (forcedOutcome !== null && forcedOutcome !== undefined) {
-        const outcomeNum = Number(forcedOutcome);
-        if (outcomeNum >= 1 && outcomeNum <= 6) {
-          finalOutcome = outcomeNum;
-          console.log(`✅ Using FORCED outcome: ${finalOutcome}`);
-        } else {
-          finalOutcome = result;
-          console.log(`❌ Invalid forced outcome: ${forcedOutcome}, using rolled: ${result}`);
-        }
+      // Get the first outcome from queue (or fallback to rolled value)
+      let finalOutcome = result;
+      let newQueue = [...outcomeQueue];
+      
+      if (outcomeQueue.length > 0) {
+        finalOutcome = Number(outcomeQueue[0]);
+        newQueue = outcomeQueue.slice(1); // Remove first item from queue
+        console.log(`✅ Using QUEUED outcome: ${finalOutcome}`);
+        console.log(`   - Remaining queue: ${JSON.stringify(newQueue)}`);
       } else {
-        finalOutcome = result;
-        console.log(`⚠️  No forced outcome set, using rolled: ${result}`);
+        console.log(`⚠️  Queue is empty, using rolled value: ${result}`);
       }
       
       console.log(`📊 Final outcome to record: ${finalOutcome} (type: ${typeof finalOutcome})`);
       
-      // Clear forced outcome after use
-      if (forcedOutcome !== null && forcedOutcome !== undefined && uid) {
-        const outcomeNum = Number(forcedOutcome);
-        if (outcomeNum >= 1 && outcomeNum <= 6) {
-          await db.collection('users').doc(uid).update({ forcedOutcome: null });
-          console.log(`✅ CLEARED forcedOutcome from database`);
-          userCache.delete(`user_${telegramId}`);
-        }
+      // Update queue in Firebase (remove the used outcome)
+      if (uid && outcomeQueue.length > 0) {
+        await db.collection('users').doc(uid).update({ outcomeQueue: newQueue });
+        console.log(`✅ UPDATED queue in database: ${JSON.stringify(newQueue)}`);
+        userCache.delete(`user_${telegramId}`);
       }
       
       // Update stats in Firebase with the outcome (no win/loss tracking)

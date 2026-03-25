@@ -7,11 +7,24 @@ import { useNavigate } from 'react-router-dom';
 
 const DICE_FACES = { 1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅' };
 
+// Extract Telegram group ID from URL
+const extractTelegramId = (urlOrId) => {
+  // If it looks like a URL
+  if (urlOrId.includes('t.me') || urlOrId.includes('telegram')) {
+    // URL format: https://t.me/groupname or https://t.me/+xxx or https://t.me/-xxx
+    const match = urlOrId.match(/t\.me\/([a-zA-Z0-9_\-+]+)/);
+    if (match) return match[1];
+  }
+  // If it's already an ID, return as-is
+  return urlOrId.trim();
+};
+
 export default function AdminPage() {
   const { user, userData, logout } = useAuth();
   const navigate = useNavigate();
-  const [targetTelegramId, setTargetTelegramId] = useState('');
-  const [outcome, setOutcome] = useState(3);
+  const [telegramUrlOrId, setTelegramUrlOrId] = useState('');
+  const [outcomeQueue, setOutcomeQueue] = useState([3, 4, 5, 2, 1]); // Default queue of 5
+  const [currentSelection, setCurrentSelection] = useState(0); // Which outcome in queue is being edited
   const [loading, setLoading] = useState(false);
 
   const handleLogout = async () => {
@@ -23,40 +36,50 @@ export default function AdminPage() {
     }
   };
 
-  // All users can control dice for Telegram groups
-  const setDiceOutcome = async () => {
-    if (!targetTelegramId.trim()) return toast.error('Enter Telegram User ID');
-    if (!/^\d{5,20}$/.test(targetTelegramId.trim())) return toast.error('Invalid Telegram User ID');
+  // Update specific outcome in queue
+  const updateQueueItem = (index, newValue) => {
+    const newQueue = [...outcomeQueue];
+    newQueue[index] = newValue;
+    setOutcomeQueue(newQueue);
+  };
+
+  // Set the outcome queue to Firebase
+  const setOutcomeQueue_Firebase = async () => {
+    if (!telegramUrlOrId.trim()) return toast.error('Enter Telegram Group URL or User ID');
+    
+    const telegramId = extractTelegramId(telegramUrlOrId);
+    if (!telegramId) return toast.error('Invalid Telegram URL or ID');
     
     setLoading(true);
     try {
-      // Find user by telegramId using modern Firebase SDK
-      const q = query(collection(db, 'users'), where('telegramId', '==', targetTelegramId.trim()));
+      // Find user by telegramId
+      const q = query(collection(db, 'users'), where('telegramId', '==', String(telegramId)));
       const snapshot = await getDocs(q);
       
       let uid;
       if (!snapshot.empty) {
         uid = snapshot.docs[0].id;
       } else {
-        // If not found, use telegramId as fallback uid
-        uid = targetTelegramId.trim();
+        // Create new user doc with this ID
+        uid = String(telegramId);
       }
 
       const userRef = doc(db, 'users', uid);
-      // IMPORTANT: Store outcome as a NUMBER, not string
-      const outcomeNum = Number(outcome);
+      // Store queue of outcomes (all as numbers)
+      const queueAsNumbers = outcomeQueue.map(o => Number(o));
+      
       await setDoc(userRef, { 
-        forcedOutcome: outcomeNum,
-        telegramId: targetTelegramId.trim(),
+        outcomeQueue: queueAsNumbers,
+        telegramId: String(telegramId),
       }, { merge: true });
       
-      toast.success(`✅ Next /roll for Telegram ID ${targetTelegramId} will be ${outcomeNum} ${DICE_FACES[outcomeNum]}`);
-      console.log(`✅ AdminPage: Set forcedOutcome=${outcomeNum} (type: ${typeof outcomeNum}) for uid=${uid}, telegramId=${targetTelegramId}`);
-      setTargetTelegramId('');
-      setOutcome(3);
+      toast.success(`✅ Queue set for Telegram ID ${telegramId}: ${queueAsNumbers.map(n => DICE_FACES[n]).join(' → ')}`);
+      console.log(`✅ AdminPage: Set outcomeQueue=${JSON.stringify(queueAsNumbers)} for uid=${uid}`);
+      setTelegramUrlOrId('');
+      setOutcomeQueue([3, 4, 5, 2, 1]);
     } catch (err) {
       console.error('Dice outcome error:', err);
-      toast.error(err.message || 'Failed to set outcome');
+      toast.error(err.message || 'Failed to set outcome queue');
     } finally {
       setLoading(false);
     }
@@ -64,68 +87,104 @@ export default function AdminPage() {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
-      <div className="card" style={{ maxWidth: 500, width: '100%' }}>
+      <div className="card" style={{ maxWidth: 600, width: '100%' }}>
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
           <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🎲</div>
-          <h1 style={{ fontSize: '1.8rem', marginBottom: '0.5rem' }}>Dice Control Panel</h1>
-          <p style={{ color: 'var(--muted)' }}>Set the next dice outcome for Telegram group rolls</p>
+          <h1 style={{ fontSize: '1.8rem', marginBottom: '0.5rem' }}>Dice Control Queue</h1>
+          <p style={{ color: 'var(--muted)' }}>Set the next 5 dice outcomes for Telegram group rolls</p>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          {/* Telegram ID Input */}
+          {/* Telegram URL/ID Input */}
           <div>
             <label style={{ fontSize: '0.85rem', color: 'var(--muted)', display: 'block', marginBottom: '0.6rem', fontWeight: 600 }}>
-              TELEGRAM USER ID
+              TELEGRAM GROUP URL OR USER ID
             </label>
             <input 
               className="input" 
-              type="number"
-              placeholder="e.g. 609161014" 
-              value={targetTelegramId} 
-              onChange={e => setTargetTelegramId(e.target.value)}
+              type="text"
+              placeholder="e.g. https://t.me/groupname or 609161014" 
+              value={telegramUrlOrId} 
+              onChange={e => setTelegramUrlOrId(e.target.value)}
               style={{ fontFamily: 'monospace' }}
             />
             <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.4rem' }}>
-              Get ID from @userinfobot in Telegram
+              Paste Telegram group URL or enter User ID
             </p>
           </div>
 
-          {/* Dice Outcome Selector */}
+          {/* Outcome Queue (5 items) */}
           <div>
             <label style={{ fontSize: '0.85rem', color: 'var(--muted)', display: 'block', marginBottom: '0.8rem', fontWeight: 600 }}>
-              CHOOSE OUTCOME ({outcome} {DICE_FACES[outcome]})
+              QUEUE OF 5 OUTCOMES
             </label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '0.6rem' }}>
-              {[1, 2, 3, 4, 5, 6].map(n => (
-                <button
-                  key={n}
-                  onClick={() => setOutcome(n)}
-                  style={{
-                    padding: '1rem',
-                    borderRadius: '10px',
-                    border: outcome === n ? '2px solid var(--accent)' : '1px solid rgba(255,255,255,0.1)',
-                    background: outcome === n ? 'rgba(124,111,255,0.2)' : 'rgba(255,255,255,0.05)',
-                    color: '#fff',
-                    cursor: 'pointer',
-                    fontWeight: 700,
-                    fontSize: '1.5rem',
-                    transition: 'all 0.2s',
-                  }}
-                >
-                  {DICE_FACES[n]}
-                </button>
+            <div style={{ 
+              display: 'flex', 
+              gap: '0.8rem', 
+              justifyContent: 'space-between',
+              background: 'rgba(0,0,0,0.2)',
+              padding: '1rem',
+              borderRadius: '8px',
+              marginBottom: '1rem',
+              flexWrap: 'wrap'
+            }}>
+              {[0, 1, 2, 3, 4].map((index) => (
+                <div key={index} style={{ flex: '1', minWidth: '80px' }}>
+                  <div style={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: 'repeat(3, 1fr)', 
+                    gap: '0.4rem'
+                  }}>
+                    {[1, 2, 3, 4, 5, 6].map(n => (
+                      <button
+                        key={n}
+                        onClick={() => updateQueueItem(index, n)}
+                        style={{
+                          padding: '0.6rem',
+                          borderRadius: '6px',
+                          border: outcomeQueue[index] === n ? '2px solid var(--accent)' : '1px solid rgba(255,255,255,0.1)',
+                          background: outcomeQueue[index] === n ? 'rgba(124,111,255,0.2)' : 'rgba(255,255,255,0.05)',
+                          color: '#fff',
+                          cursor: 'pointer',
+                          fontWeight: 700,
+                          fontSize: '1rem',
+                          transition: 'all 0.2s',
+                        }}
+                      >
+                        {DICE_FACES[n]}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ textAlign: 'center', marginTop: '0.4rem', fontSize: '0.7rem', color: 'var(--muted)' }}>
+                    Roll #{index + 1}
+                  </div>
+                </div>
               ))}
+            </div>
+            
+            {/* Queue preview */}
+            <div style={{ 
+              background: 'rgba(100,200,255,0.1)',
+              border: '1px solid rgba(100,200,255,0.3)',
+              borderRadius: '6px',
+              padding: '0.8rem',
+              textAlign: 'center',
+              fontSize: '1.2rem',
+              fontWeight: 'bold',
+              color: '#fff'
+            }}>
+              Queue: {outcomeQueue.map((o, i) => `${DICE_FACES[o]}`).join(' → ')}
             </div>
           </div>
 
           {/* Submit Button */}
           <button 
             className="btn btn-primary btn-lg" 
-            onClick={setDiceOutcome}
+            onClick={setOutcomeQueue_Firebase}
             disabled={loading}
             style={{ marginTop: '1rem' }}
           >
-            {loading ? '⏳ Setting...' : `🎲 Set Next Roll = ${outcome}`}
+            {loading ? '⏳ Setting Queue...' : `✅ Set Outcome Queue`}
           </button>
 
           {/* Info Box */}
@@ -139,10 +198,11 @@ export default function AdminPage() {
             lineHeight: '1.6'
           }}>
             <strong style={{ color: 'var(--success)' }}>ℹ️ How it works:</strong><br/>
-            1. Enter the Telegram User ID<br/>
-            2. Choose the dice outcome (1-6)<br/>
-            3. When they /roll in group, they get that number<br/>
-            4. After one roll, outcome resets automatically
+            1. Paste Telegram group URL or enter User ID<br/>
+            2. Select outcome for each of the 5 upcoming rolls<br/>
+            3. Click "Set Outcome Queue"<br/>
+            4. Each time user rolls, the next outcome in queue is used<br/>
+            5. After all 5 rolls are used, queue resets
           </div>
 
           {/* Logout */}
