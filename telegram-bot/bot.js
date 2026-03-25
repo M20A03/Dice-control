@@ -142,20 +142,8 @@ db.collection('users').onSnapshot((snapshot) => {
           // Process the roll through normal logic
           const finalOutcome = await processDiceRoll(String(telegramId), username, result);
           
-          // Send outcome message to user's DM
-          const DICE_FACES = { 1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅' };
-          const outcome = DICE_FACES[finalOutcome] || '❓';
-          
-          try {
-            await bot.sendMessage(
-              telegramId,
-              `${outcome} *Force Roll* — You got: **${finalOutcome}**`,
-              { parse_mode: 'Markdown' }
-            );
-            console.log(`✅ Sent force roll outcome to ${telegramId}`);
-          } catch (dmErr) {
-            console.log(`⚠️  Could not send DM to ${telegramId} (user may need to start bot first)`);
-          }
+          // SILENT - No message sent to Telegram
+          console.log(`✅ Force roll outcome recorded silently: ${finalOutcome}`);
           
           // Clear the forceRoll flag
           await db.collection('users').doc(change.doc.id).update({ forceRoll: false });
@@ -265,18 +253,8 @@ async function updateUserStats(telegramId, username, outcome) {
 bot.onText(/\/start/, async (msg) => {
   try {
     console.log(`📨 /start received from ${msg.from.id}`);
-    await bot.sendMessage(
-      msg.chat.id,
-      `🎲 *MayaDiceGameBot*\n\n` +
-      `Commands in groups:\n` +
-      `• Dice — Roll the dice\n` +
-      `• /queue — Check your outcome queue\n` +
-      `• /stats — View your stats\n` +
-      `• /leaderboard — Top 10 players\n` +
-      `• /help — Show help`,
-      { parse_mode: 'Markdown' }
-    );
-    console.log(`✅ Menu sent to ${msg.from.id}`);
+    // SILENT - no message sent
+    console.log(`✅ User ${msg.from.username || msg.from.first_name} started bot`);
   } catch (err) {
     console.error(`❌ /start error:`, err.message);
   }
@@ -293,27 +271,10 @@ bot.onText(/\/queue/, async (msg) => {
     const userData = await getUserData(telegramId);
     const outcomeQueue = userData?.outcomeQueue || [];
     
-    const DICE_FACES = { 1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅' };
-    
-    if (outcomeQueue.length > 0) {
-      const queueDisplay = outcomeQueue.map(n => `${DICE_FACES[n] || '❓'} (${n})`).join(' → ');
-      await bot.sendMessage(
-        chatId,
-        `📋 *Your Outcome Queue:*\n\n${queueDisplay}\n\n${outcomeQueue.length} outcomes remaining`,
-        { parse_mode: 'Markdown' }
-      );
-      console.log(`✅ Queue sent to ${username}: [${outcomeQueue.join(',')}]`);
-    } else {
-      await bot.sendMessage(
-        chatId,
-        `❌ *No Queue Set*\n\nAdmin must set your outcome queue first in the admin panel.\n\nYour Telegram ID: \`${telegramId}\``,
-        { parse_mode: 'Markdown' }
-      );
-      console.log(`❌ Queue empty for ${username} (${telegramId})`);
-    }
+    // Silent - no message sent to Telegram
+    console.log(`Queue for ${username}: [${outcomeQueue.join(',')}]`);
   } catch (err) {
     console.error('Queue check error:', err);
-    await bot.sendMessage(chatId, '❌ Error checking queue.');
   }
 });
 
@@ -455,30 +416,18 @@ bot.on('message', async (msg) => {
       // Process the dice roll through the common logic
       const finalOutcome = await processDiceRoll(telegramId, username, result);
       
-      // Send the outcome to Telegram chat
-      const DICE_FACES = { 1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅' };
-      const outcome = DICE_FACES[finalOutcome] || '❓';
-      
-      await bot.sendMessage(
-        chatId,
-        `${outcome} *${username}* rolled and got: **${finalOutcome}**`,
-        { parse_mode: 'Markdown' }
-      );
-      console.log(`✅ Sent outcome message to chat: ${finalOutcome}`);
+      // SILENT - No message sent to Telegram
+      console.log(`✅ Outcome recorded silently: ${finalOutcome}`);
     } catch (err) {
       console.error('Dice roll error:', err);
       // Silent error - don't spam Telegram chat
     }
   }
   
-  // Handle text commands
+  // Handle text commands - SILENT
   if (msg.text && msg.text.toLowerCase().includes('dice') && !msg.dice) {
-    const chatId = msg.chat.id;
-    await bot.sendMessage(
-      chatId,
-      '🎲 *Send the 🎲 emoji directly* to roll the dice!\n\nYour results will appear on your website dashboard.',
-      { parse_mode: 'Markdown' }
-    );
+    // Silent - no message sent
+    console.log(`Text "dice" received from ${msg.from.username || msg.from.first_name}`);
   }
 });
 
