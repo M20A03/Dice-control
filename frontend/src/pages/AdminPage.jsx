@@ -86,6 +86,34 @@ export default function AdminPage() {
     }
   };
 
+  // Verify the saved queue from Firebase
+  const verifySavedQueue = async () => {
+    if (!telegramUrlOrId.trim()) return toast.error('Enter Telegram Group URL or User ID');
+    
+    const telegramId = extractTelegramId(telegramUrlOrId);
+    if (!telegramId) return toast.error('Invalid Telegram URL or ID');
+    
+    setLoading(true);
+    try {
+      const q = query(collection(db, 'users'), where('telegramId', '==', String(telegramId)));
+      const snapshot = await getDocs(q);
+      
+      if (!snapshot.empty) {
+        const userData = snapshot.docs[0].data();
+        const savedQueue = userData.outcomeQueue || [];
+        console.log(`📋 FIREBASE VERIFICATION for ${telegramId}:`, savedQueue);
+        toast.success(`✅ Saved queue: ${savedQueue.map(n => DICE_FACES[n] || n).join(' → ')} (${savedQueue.join(',')})`);
+      } else {
+        toast.error('❌ User not found in Firebase');
+      }
+    } catch (err) {
+      console.error('Verify error:', err);
+      toast.error('Failed to verify queue');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Force roll for a user
   const forceRollUser = async () => {
     if (!forceRollId.trim()) return toast.error('Enter Telegram User ID');
@@ -217,14 +245,24 @@ export default function AdminPage() {
           </div>
 
           {/* Submit Button */}
-          <button 
-            className="btn btn-primary btn-lg" 
-            onClick={setOutcomeQueue_Firebase}
-            disabled={loading}
-            style={{ marginTop: '1rem' }}
-          >
-            {loading ? '⏳ Setting Queue...' : `✅ Set Outcome Queue`}
-          </button>
+          <div style={{ display: 'flex', gap: '0.8rem' }}>
+            <button 
+              className="btn btn-primary btn-lg" 
+              onClick={setOutcomeQueue_Firebase}
+              disabled={loading}
+              style={{ flex: 1, marginTop: '1rem' }}
+            >
+              {loading ? '⏳ Setting...' : `✅ Set Queue`}
+            </button>
+            <button 
+              className="btn btn-secondary btn-lg" 
+              onClick={verifySavedQueue}
+              disabled={loading}
+              style={{ flex: 1, marginTop: '1rem', background: 'rgba(100,200,255,0.2)', border: '1px solid rgba(100,200,255,0.5)' }}
+            >
+              {loading ? '⏳ Checking...' : `🔍 Verify`}
+            </button>
+          </div>
 
           {/* Info Box */}
           <div style={{ 
