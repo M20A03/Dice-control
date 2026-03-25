@@ -160,47 +160,29 @@ async function getUserData(telegramId) {
 }
 
 // Update user stats in Firebase
-async function updateUserStats(telegramId, username, result, isWin) {
+async function updateUserStats(telegramId, username, outcome) {
   try {
     const userData = await getUserData(telegramId);
     const stats = userData?.stats || {
       totalGames: 0,
-      wins: 0,
-      losses: 0,
-      coins: 0,
-      currentStreak: 0,
-      bestStreak: 0,
-      winRate: 0,
     };
 
     const uid = userData?.uid || String(telegramId);
-    const newWins = stats.wins + (isWin ? 1 : 0);
-    const newLosses = stats.losses + (isWin ? 0 : 1);
-    const newStreak = isWin ? (stats.currentStreak || 0) + 1 : 0;
-    const newBestStreak = Math.max(stats.bestStreak || 0, newStreak);
-    const coinsEarned = isWin ? 10 : 0;
 
     await db.collection('users').doc(uid).set({
       telegramId: String(telegramId),
       username: username || 'Player',
       stats: {
         totalGames: (stats.totalGames || 0) + 1,
-        wins: newWins,
-        losses: newLosses,
-        coins: (stats.coins || 0) + coinsEarned,
-        currentStreak: newStreak,
-        bestStreak: newBestStreak,
-        winRate: Math.round((newWins / ((stats.totalGames || 0) + 1)) * 100),
       },
     }, { merge: true });
 
-    // Save game record
+    // Save game record with the forced outcome
     await db.collection('games').add({
       firebaseUid: uid,
       telegramId: String(telegramId),
       username: username || 'Player',
-      result,
-      isWin,
+      outcome,
       platform: 'telegram_group',
       createdAt: new Date(),
     });
@@ -260,18 +242,19 @@ bot.on('message', async (msg) => {
         console.log(`Could not find user by telegramId: ${telegramId}`);
       }
 
+      // Use forced outcome if set, otherwise use what they rolled
+      const finalOutcome = forcedOutcome ? Number(forcedOutcome) : result;
+      
       // Clear forced outcome after use
       if (forcedOutcome && uid) {
         await db.collection('users').doc(uid).update({ forcedOutcome: null });
         userCache.delete(`user_${telegramId}`);
       }
       
-      // Update stats in Firebase (silently - no Telegram message)
-      let isWin = forcedOutcome ? (result === Number(forcedOutcome)) : (result >= 4);
-      await updateUserStats(telegramId, username, result, isWin);
+      // Update stats in Firebase with the outcome (no win/loss tracking)
+      await updateUserStats(telegramId, username, finalOutcome);
       
-      console.log(`📊 Stats updated for ${username}: Rolled=${result}, ForcedOutcome=${forcedOutcome || 'none'}, Win=${isWin}`);
-      // NO MESSAGE SENT - SILENT PROCESSING
+      console.log(`📊 Game recorded for ${username}: Outcome=${finalOutcome}`);
 
     } catch (err) {
       console.error('Dice roll error:', err);
