@@ -347,46 +347,67 @@ async function processDiceRoll(telegramId, username, result) {
       let outcomeQueue = [];
       let uid = null;
       let queueVersion = null;
+      let userData = null;
       
       console.log(`\n${'═'.repeat(60)}`);
-      console.log(`🎲 DICE ROLL PROCESSING (Attempt ${retryCount + 1}/${maxRetries})`);
+      console.log(`🎲 DICE ROLL PROCESSING`);
       console.log(`${'═'.repeat(60)}`);
-      console.log(`📥 Telegram ID from roller: ${telegramId}`);
+      console.log(`📥 Telegram ID: ${telegramId}`);
       console.log(`👤 Username: ${username}`);
-      console.log(`🎲 Actual dice value: ${result}`);
+      console.log(`🎲 Actual dice value from user: ${result}`);
       
+      // METHOD 1: Try searching by telegramId field
       try {
-        // Check if user exists in Firebase
+        console.log(`\n🔍 METHOD 1: Searching by telegramId field...`);
         const q = db.collection('users').where('telegramId', '==', String(telegramId));
         const snapshot = await q.get();
         
-        console.log(`\n🔍 Searching Firebase for telegramId=${telegramId}...`);
-        
         if (!snapshot.empty) {
           uid = snapshot.docs[0].id;
-          const userData = snapshot.docs[0].data();
-          outcomeQueue = userData.outcomeQueue || [];
-          queueVersion = userData.queueVersion || 0;
-          
-          console.log(`✅ FOUND user in Firebase`);
+          userData = snapshot.docs[0].data();
+          console.log(`✅ FOUND by field search`);
           console.log(`   - Document ID: ${uid}`);
-          console.log(`   - Stored telegramId: ${userData.telegramId}`);
-          console.log(`   - Queue stored in Firebase: [${outcomeQueue.join(',')}]`);
-          console.log(`   - Queue length: ${outcomeQueue.length}`);
-          console.log(`   - Queue version: ${queueVersion}`);
         } else {
-          console.log(`❌ USER NOT FOUND in Firebase`);
-          console.log(`   - No user document exists for telegramId=${telegramId}`);
-          console.log(`   - Falling back to actual dice roll: ${result}`);
-          console.log(`\n⚠️  FIX: Admin must FIRST set queue for this user in admin panel!`);
-          console.log(`${'═'.repeat(60)}\n`);
-          return result; // Fallback to rolled value
+          console.log(`❌ Not found by field search, trying METHOD 2...`);
         }
       } catch (e) {
-        console.error(`❌ Error fetching user: ${e.message}`);
+        console.error(`❌ Field search error: ${e.message}`);
+      }
+
+      // METHOD 2: Try searching by document ID
+      if (!userData) {
+        try {
+          console.log(`\n🔍 METHOD 2: Searching by document ID...`);
+          const docRef = db.collection('users').doc(String(telegramId));
+          const docSnap = await docRef.get();
+          
+          if (docSnap.exists) {
+            uid = String(telegramId);
+            userData = docSnap.data();
+            console.log(`✅ FOUND by document ID search`);
+          } else {
+            console.log(`❌ Not found by document ID search`);
+          }
+        } catch (e) {
+          console.error(`❌ Document ID search error: ${e.message}`);
+        }
+      }
+
+      // If still not found, use actual roll
+      if (!userData) {
+        console.log(`\n❌ USER NOT FOUND IN FIREBASE - Using actual dice roll: ${result}`);
         console.log(`${'═'.repeat(60)}\n`);
+        await updateUserStats(telegramId, username, result);
         return result;
       }
+
+      outcomeQueue = userData.outcomeQueue || [];
+      queueVersion = userData.queueVersion || 0;
+      
+      console.log(`\n📊 User data retrieved:`);
+      console.log(`   - Queue: [${outcomeQueue.join(',')}]`);
+      console.log(`   - Queue length: ${outcomeQueue.length}`);
+      console.log(`   - Queue version: ${queueVersion}`);
 
       // Get the first outcome from queue (or fallback to rolled value)
       let finalOutcome = result;
@@ -397,21 +418,16 @@ async function processDiceRoll(telegramId, username, result) {
         newQueue = outcomeQueue.slice(1); // Remove first item from queue
         
         console.log(`\n✅ USING QUEUE`);
-        console.log(`   - Taking first item from queue: ${finalOutcome}`);
-        console.log(`   - Remaining queue after this roll: [${newQueue.join(',')}]`);
+        console.log(`   - Selected outcome: ${finalOutcome}`);
+        console.log(`   - Remaining queue: [${newQueue.join(',')}]`);
       } else {
-        console.log(`\n⚠️  QUEUE EMPTY - Using actual dice roll: ${result}`);
+        console.log(`\n⚠️  Queue is empty - Using actual dice roll: ${result}`);
         console.log(`${'═'.repeat(60)}\n`);
-        // Just record the roll without updating queue
         await updateUserStats(telegramId, username, finalOutcome);
         return finalOutcome;
       }
       
-      console.log(`\n📊 FINAL OUTCOME`);
-      console.log(`   - Value: ${finalOutcome}`);
-      console.log(`   - Type: ${typeof finalOutcome}`);
-      
-      // Use transaction to atomically update queue (prevents race conditions)
+      // Update queue in Firebase
       if (uid) {
         await db.collection('users').doc(uid).update({ 
           outcomeQueue: newQueue,
@@ -419,17 +435,14 @@ async function processDiceRoll(telegramId, username, result) {
           lastQueueUpdate: new Date(),
           lastOutcome: finalOutcome
         });
-        console.log(`\n✅ QUEUE UPDATED IN FIREBASE`);
-        console.log(`   - New queue: [${newQueue.join(',')}]`);
-        console.log(`   - New version: ${queueVersion + 1}`);
+        console.log(`\n✅ Queue updated in Firebase`);
         userCache.delete(`user_${telegramId}`);
       }
       
-      // Update stats in Firebase with the outcome (no win/loss tracking)
+      // Record the game
       await updateUserStats(telegramId, username, finalOutcome);
       
       console.log(`\n✅ GAME RECORDED`);
-      console.log(`   - Player: ${username}`);
       console.log(`   - Outcome saved: ${finalOutcome}`);
       console.log(`${'═'.repeat(60)}\n`);
       
@@ -440,14 +453,17 @@ async function processDiceRoll(telegramId, username, result) {
       console.error(`\n❌ ERROR on attempt ${retryCount}: ${err.message}`);
       
       if (retryCount >= maxRetries) {
-        console.error(`❌ FAILED after ${maxRetries} attempts. Using actual roll: ${result}`);
+        console.error(`❌ FAILED after ${maxRetries} attempts - Using actual roll: ${result}`);
         console.log(`${'═'.repeat(60)}\n`);
-        // Fallback: record the actual roll
-        await updateUserStats(telegramId, username, result);
+        try {
+          await updateUserStats(telegramId, username, result);
+        } catch (e) {
+          console.error(`Failed to record stats: ${e.message}`);
+        }
         return result;
       }
       
-      // Wait before retry to allow queue update to complete
+      // Wait before retry
       await new Promise(resolve => setTimeout(resolve, 100 * retryCount));
     }
   }
