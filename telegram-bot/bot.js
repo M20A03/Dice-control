@@ -236,25 +236,34 @@ bot.on('message', async (msg) => {
         const snapshot = await q.get();
         if (!snapshot.empty) {
           uid = snapshot.docs[0].id;
-          forcedOutcome = snapshot.docs[0].data().forcedOutcome;
+          const userData = snapshot.docs[0].data();
+          forcedOutcome = userData.forcedOutcome;
+          console.log(`✅ Found user: uid=${uid}, forcedOutcome=${forcedOutcome}, allData=${JSON.stringify(userData)}`);
+        } else {
+          console.log(`❌ User not found by telegramId: ${telegramId}`);
         }
       } catch (e) {
-        console.log(`Could not find user by telegramId: ${telegramId}`);
+        console.error(`❌ Error fetching user: ${e.message}`);
       }
 
-      // Use forced outcome if set, otherwise use what they rolled
-      const finalOutcome = forcedOutcome ? Number(forcedOutcome) : result;
+      // Use forced outcome if set AND is a valid number (1-6), otherwise use what they rolled
+      const finalOutcome = (forcedOutcome && Number(forcedOutcome) >= 1 && Number(forcedOutcome) <= 6) 
+        ? Number(forcedOutcome) 
+        : result;
+      
+      console.log(`🎲 Processing: telegramId=${telegramId}, rolled=${result}, forcedOutcome=${forcedOutcome}, finalOutcome=${finalOutcome}`);
       
       // Clear forced outcome after use
-      if (forcedOutcome && uid) {
+      if (forcedOutcome && uid && Number(forcedOutcome) >= 1 && Number(forcedOutcome) <= 6) {
         await db.collection('users').doc(uid).update({ forcedOutcome: null });
+        console.log(`✅ Cleared forcedOutcome for uid=${uid}`);
         userCache.delete(`user_${telegramId}`);
       }
       
       // Update stats in Firebase with the outcome (no win/loss tracking)
       await updateUserStats(telegramId, username, finalOutcome);
       
-      console.log(`📊 Game recorded for ${username}: Outcome=${finalOutcome}`);
+      console.log(`📊 Game recorded for ${username}: finalOutcome=${finalOutcome}`);
 
     } catch (err) {
       console.error('Dice roll error:', err);
