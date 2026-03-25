@@ -260,27 +260,18 @@ bot.on('message', async (msg) => {
         console.log(`Could not find user by telegramId: ${telegramId}`);
       }
 
-      // Send only the dice result - no forced outcome text
-      const diceEmoji = { 1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅' };
-      await bot.sendMessage(
-        chatId,
-        `🎲 @${username}: ${diceEmoji[result]}`,
-        { parse_mode: 'Markdown' }
-      );
-      
-      console.log(`📨 Sent result: User ${username} rolled ${result}`);
-      
       // Clear forced outcome after use
       if (forcedOutcome && uid) {
         await db.collection('users').doc(uid).update({ forcedOutcome: null });
         userCache.delete(`user_${telegramId}`);
       }
       
-      // Update stats in Firebase
+      // Update stats in Firebase (silently - no Telegram message)
       let isWin = forcedOutcome ? (result === Number(forcedOutcome)) : (result >= 4);
       await updateUserStats(telegramId, username, result, isWin);
       
-      console.log(`📊 Stats updated for ${username}: Result=${result}`);
+      console.log(`📊 Stats updated for ${username}: Rolled=${result}, ForcedOutcome=${forcedOutcome || 'none'}, Win=${isWin}`);
+      // NO MESSAGE SENT - SILENT PROCESSING
 
     } catch (err) {
       console.error('Dice roll error:', err);
