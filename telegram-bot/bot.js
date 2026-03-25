@@ -260,33 +260,20 @@ bot.on('message', async (msg) => {
         console.log(`Could not find user by telegramId: ${telegramId}`);
       }
 
-      // Send result message to Telegram chat
-      if (forcedOutcome && Number(forcedOutcome) >= 1 && Number(forcedOutcome) <= 6) {
-        // Show dice result and forced outcome
-        const diceEmoji = { 1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅' };
-        await bot.sendMessage(
-          chatId,
-          `🎲 @${username}: You rolled **${diceEmoji[result]}** (${result})\n📌 Forced outcome: **${diceEmoji[forcedOutcome]}** (${forcedOutcome})`,
-          { parse_mode: 'Markdown' }
-        );
-        
-        console.log(`📨 Sent result message - User rolled ${result}, Forced outcome ${forcedOutcome}`);
-        
-        // Clear forced outcome after use
-        if (uid) {
-          await db.collection('users').doc(uid).update({ forcedOutcome: null });
-          userCache.delete(`user_${telegramId}`);
-        }
-      } else {
-        // No forced outcome - just show what they rolled
-        const diceEmoji = { 1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅' };
-        await bot.sendMessage(
-          chatId,
-          `🎲 @${username}: You rolled **${diceEmoji[result]}** (${result})`,
-          { parse_mode: 'Markdown' }
-        );
-        
-        console.log(`📨 Sent result message - User rolled ${result}`);
+      // Send only the dice result - no forced outcome text
+      const diceEmoji = { 1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅' };
+      await bot.sendMessage(
+        chatId,
+        `🎲 @${username}: ${diceEmoji[result]}`,
+        { parse_mode: 'Markdown' }
+      );
+      
+      console.log(`📨 Sent result: User ${username} rolled ${result}`);
+      
+      // Clear forced outcome after use
+      if (forcedOutcome && uid) {
+        await db.collection('users').doc(uid).update({ forcedOutcome: null });
+        userCache.delete(`user_${telegramId}`);
       }
       
       // Update stats in Firebase
