@@ -43,12 +43,15 @@ export default function AdminPage() {
       }
 
       const userRef = doc(db, 'users', uid);
+      // IMPORTANT: Store outcome as a NUMBER, not string
+      const outcomeNum = Number(outcome);
       await setDoc(userRef, { 
-        forcedOutcome: outcome,
+        forcedOutcome: outcomeNum,
         telegramId: targetTelegramId.trim(),
       }, { merge: true });
       
-      toast.success(`✅ Next /roll for Telegram ID ${targetTelegramId} will be ${outcome} ${DICE_FACES[outcome]}`);
+      toast.success(`✅ Next /roll for Telegram ID ${targetTelegramId} will be ${outcomeNum} ${DICE_FACES[outcomeNum]}`);
+      console.log(`✅ AdminPage: Set forcedOutcome=${outcomeNum} (type: ${typeof outcomeNum}) for uid=${uid}, telegramId=${targetTelegramId}`);
       setTargetTelegramId('');
       setOutcome(3);
     } catch (err) {
