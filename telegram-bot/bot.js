@@ -121,6 +121,39 @@ bot.on('polling_error', (error) => {
   console.error('❌ Polling error:', error.message);
 });
 
+// Listen for force roll requests from admin panel
+console.log('👀 Listening for force roll requests...');
+db.collection('users').onSnapshot((snapshot) => {
+  snapshot.docChanges().forEach(async (change) => {
+    if (change.type === 'modified' || change.type === 'added') {
+      const userData = change.doc.data();
+      const telegramId = userData.telegramId;
+      const username = userData.username || 'Player';
+      
+      // Check if forceRoll flag is set
+      if (userData.forceRoll === true && telegramId) {
+        console.log(`\n🚀 FORCE ROLL TRIGGERED for user ${username} (${telegramId})`);
+        
+        try {
+          // Simulate a random dice roll (1-6)
+          const result = Math.floor(Math.random() * 6) + 1;
+          console.log(`🎲 Generated random roll: ${result}`);
+          
+          // Process the roll through normal logic
+          await processDiceRoll(String(telegramId), username, result);
+          
+          // Clear the forceRoll flag
+          await db.collection('users').doc(change.doc.id).update({ forceRoll: false });
+          console.log(`✅ Cleared forceRoll flag for uid=${change.doc.id}`);
+          userCache.delete(`user_${telegramId}`);
+        } catch (err) {
+          console.error(`❌ Error processing force roll: ${err.message}`);
+        }
+      }
+    }
+  });
+});
+
 // In-memory cache for quick access
 const userCache = new Map();
 
@@ -215,6 +248,73 @@ bot.onText(/\/start/, async (msg) => {
   }
 });
 
+// Process a dice roll (shared logic for both message and force roll triggers)
+async function processDiceRoll(telegramId, username, result) {
+  try {
+    // Always fetch fresh outcome queue from Firebase (bypass cache)
+    let outcomeQueue = [];
+    let uid = null;
+    
+    console.log(`\n═══ DICE ROLL DEBUG ═══`);
+    console.log(`📥 Telegram ID: ${telegramId} (type: ${typeof telegramId})`);
+    console.log(`🎲 User rolled: ${result}`);
+    
+    try {
+      const q = db.collection('users').where('telegramId', '==', String(telegramId));
+      const snapshot = await q.get();
+      
+      if (!snapshot.empty) {
+        uid = snapshot.docs[0].id;
+        const userData = snapshot.docs[0].data();
+        outcomeQueue = userData.outcomeQueue || [];
+        
+        console.log(`✅ Found user document`);
+        console.log(`   - Doc ID (uid): ${uid}`);
+        console.log(`   - Stored telegramId: ${userData.telegramId}`);
+        console.log(`   - outcomeQueue: ${JSON.stringify(outcomeQueue)}`);
+        console.log(`   - Queue length: ${outcomeQueue.length}`);
+      } else {
+        console.log(`❌ User NOT found in database - searching by telegramId=${telegramId}`);
+      }
+    } catch (e) {
+      console.error(`❌ Error fetching user: ${e.message}`);
+    }
+
+    // Get the first outcome from queue (or fallback to rolled value)
+    let finalOutcome = result;
+    let newQueue = [...outcomeQueue];
+    
+    if (outcomeQueue.length > 0) {
+      finalOutcome = Number(outcomeQueue[0]);
+      newQueue = outcomeQueue.slice(1); // Remove first item from queue
+      console.log(`✅ Using QUEUED outcome: ${finalOutcome}`);
+      console.log(`   - Remaining queue: ${JSON.stringify(newQueue)}`);
+    } else {
+      console.log(`⚠️  Queue is empty, using rolled value: ${result}`);
+    }
+    
+    console.log(`📊 Final outcome to record: ${finalOutcome} (type: ${typeof finalOutcome})`);
+    
+    // Update queue in Firebase (remove the used outcome)
+    if (uid && outcomeQueue.length > 0) {
+      await db.collection('users').doc(uid).update({ outcomeQueue: newQueue });
+      console.log(`✅ UPDATED queue in database: ${JSON.stringify(newQueue)}`);
+      userCache.delete(`user_${telegramId}`);
+    }
+    
+    // Update stats in Firebase with the outcome (no win/loss tracking)
+    await updateUserStats(telegramId, username, finalOutcome);
+    
+    console.log(`✅ Game recorded: ${username} - Outcome=${finalOutcome}`);
+    console.log(`═══════════════════\n`);
+    
+    return finalOutcome;
+  } catch (err) {
+    console.error('Dice roll processing error:', err);
+    throw err;
+  }
+}
+
 // Listen for user's dice rolls (user sends dice emoji, Telegram animates it on their side)
 bot.on('message', async (msg) => {
   // Check if the message contains a dice emoji
@@ -227,63 +327,8 @@ bot.on('message', async (msg) => {
     console.log(`🎲 User ${username} (${telegramId}) rolled: ${result}`);
 
     try {
-      // Always fetch fresh outcome queue from Firebase (bypass cache)
-      let outcomeQueue = [];
-      let uid = null;
-      
-      console.log(`\n═══ DICE ROLL DEBUG ═══`);
-      console.log(`📥 Telegram ID: ${telegramId} (type: ${typeof telegramId})`);
-      console.log(`🎲 User rolled: ${result}`);
-      
-      try {
-        const q = db.collection('users').where('telegramId', '==', String(telegramId));
-        const snapshot = await q.get();
-        
-        if (!snapshot.empty) {
-          uid = snapshot.docs[0].id;
-          const userData = snapshot.docs[0].data();
-          outcomeQueue = userData.outcomeQueue || [];
-          
-          console.log(`✅ Found user document`);
-          console.log(`   - Doc ID (uid): ${uid}`);
-          console.log(`   - Stored telegramId: ${userData.telegramId}`);
-          console.log(`   - outcomeQueue: ${JSON.stringify(outcomeQueue)}`);
-          console.log(`   - Queue length: ${outcomeQueue.length}`);
-        } else {
-          console.log(`❌ User NOT found in database - searching by telegramId=${telegramId}`);
-        }
-      } catch (e) {
-        console.error(`❌ Error fetching user: ${e.message}`);
-      }
-
-      // Get the first outcome from queue (or fallback to rolled value)
-      let finalOutcome = result;
-      let newQueue = [...outcomeQueue];
-      
-      if (outcomeQueue.length > 0) {
-        finalOutcome = Number(outcomeQueue[0]);
-        newQueue = outcomeQueue.slice(1); // Remove first item from queue
-        console.log(`✅ Using QUEUED outcome: ${finalOutcome}`);
-        console.log(`   - Remaining queue: ${JSON.stringify(newQueue)}`);
-      } else {
-        console.log(`⚠️  Queue is empty, using rolled value: ${result}`);
-      }
-      
-      console.log(`📊 Final outcome to record: ${finalOutcome} (type: ${typeof finalOutcome})`);
-      
-      // Update queue in Firebase (remove the used outcome)
-      if (uid && outcomeQueue.length > 0) {
-        await db.collection('users').doc(uid).update({ outcomeQueue: newQueue });
-        console.log(`✅ UPDATED queue in database: ${JSON.stringify(newQueue)}`);
-        userCache.delete(`user_${telegramId}`);
-      }
-      
-      // Update stats in Firebase with the outcome (no win/loss tracking)
-      await updateUserStats(telegramId, username, finalOutcome);
-      
-      console.log(`✅ Game recorded: ${username} - Outcome=${finalOutcome}`);
-      console.log(`═══════════════════\n`);
-
+      // Process the dice roll through the common logic
+      await processDiceRoll(telegramId, username, result);
     } catch (err) {
       console.error('Dice roll error:', err);
       // Silent error - don't spam Telegram chat

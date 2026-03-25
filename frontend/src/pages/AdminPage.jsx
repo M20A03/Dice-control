@@ -25,6 +25,7 @@ export default function AdminPage() {
   const [telegramUrlOrId, setTelegramUrlOrId] = useState('');
   const [outcomeQueue, setOutcomeQueue] = useState([3, 4, 5, 2, 1]); // Default queue of 5
   const [currentSelection, setCurrentSelection] = useState(0); // Which outcome in queue is being edited
+  const [forceRollId, setForceRollId] = useState(''); // For force roll feature
   const [loading, setLoading] = useState(false);
 
   const handleLogout = async () => {
@@ -80,6 +81,44 @@ export default function AdminPage() {
     } catch (err) {
       console.error('Dice outcome error:', err);
       toast.error(err.message || 'Failed to set outcome queue');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Force roll for a user
+  const forceRollUser = async () => {
+    if (!forceRollId.trim()) return toast.error('Enter Telegram User ID');
+    
+    const telegramId = extractTelegramId(forceRollId);
+    if (!telegramId) return toast.error('Invalid Telegram URL or ID');
+    
+    setLoading(true);
+    try {
+      // Find user by telegramId
+      const q = query(collection(db, 'users'), where('telegramId', '==', String(telegramId)));
+      const snapshot = await getDocs(q);
+      
+      let uid;
+      if (!snapshot.empty) {
+        uid = snapshot.docs[0].id;
+      } else {
+        uid = String(telegramId);
+      }
+
+      const userRef = doc(db, 'users', uid);
+      // Set forceRoll flag
+      await setDoc(userRef, { 
+        forceRoll: true,
+        telegramId: String(telegramId),
+      }, { merge: true });
+      
+      toast.success(`✅ Force roll triggered for Telegram ID ${telegramId}\n⏳ Bot will roll in 1-2 seconds...`);
+      console.log(`✅ AdminPage: forceRoll=true for uid=${uid}, telegramId=${telegramId}`);
+      setForceRollId('');
+    } catch (err) {
+      console.error('Force roll error:', err);
+      toast.error(err.message || 'Failed to trigger force roll');
     } finally {
       setLoading(false);
     }
@@ -205,10 +244,47 @@ export default function AdminPage() {
             5. After all 5 rolls are used, queue resets
           </div>
 
+          {/* FORCE ROLL SECTION */}
+          <div style={{ 
+            borderTop: '2px solid rgba(255,100,100,0.3)',
+            paddingTop: '1.5rem',
+            marginTop: '1.5rem'
+          }}>
+            <h2 style={{ fontSize: '1.2rem', marginBottom: '1rem', color: '#fff' }}>🚀 Force Roll User</h2>
+            
+            <div>
+              <label style={{ fontSize: '0.85rem', color: 'var(--muted)', display: 'block', marginBottom: '0.6rem', fontWeight: 600 }}>
+                TELEGRAM USER ID
+              </label>
+              <input 
+                className="input" 
+                type="text"
+                placeholder="e.g. 609161014 or https://t.me/groupname" 
+                value={forceRollId} 
+                onChange={e => setForceRollId(e.target.value)}
+                style={{ fontFamily: 'monospace', marginBottom: '0.8rem' }}
+              />
+            </div>
+
+            <button 
+              className="btn btn-primary btn-lg" 
+              onClick={forceRollUser}
+              disabled={loading}
+              style={{ width: '100%' }}
+            >
+              {loading ? '⏳ Triggering...' : '🚀 Force Roll Now'}
+            </button>
+
+            <p style={{ fontSize: '0.75rem', color: 'rgba(255,100,100,0.7)', marginTop: '0.6rem', textAlign: 'center' }}>
+              Bot will automatically roll dice for this user in 1-2 seconds
+            </p>
+          </div>
+
           {/* Logout */}
           <button 
             className="btn btn-secondary"
             onClick={handleLogout}
+            style={{ marginTop: '1rem' }}
           >
             Sign Out
           </button>
