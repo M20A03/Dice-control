@@ -140,7 +140,22 @@ db.collection('users').onSnapshot((snapshot) => {
           console.log(`🎲 Generated random roll: ${result}`);
           
           // Process the roll through normal logic
-          await processDiceRoll(String(telegramId), username, result);
+          const finalOutcome = await processDiceRoll(String(telegramId), username, result);
+          
+          // Send outcome message to user's DM
+          const DICE_FACES = { 1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅' };
+          const outcome = DICE_FACES[finalOutcome] || '❓';
+          
+          try {
+            await bot.sendMessage(
+              telegramId,
+              `${outcome} *Force Roll* — You got: **${finalOutcome}**`,
+              { parse_mode: 'Markdown' }
+            );
+            console.log(`✅ Sent force roll outcome to ${telegramId}`);
+          } catch (dmErr) {
+            console.log(`⚠️  Could not send DM to ${telegramId} (user may need to start bot first)`);
+          }
           
           // Clear the forceRoll flag
           await db.collection('users').doc(change.doc.id).update({ forceRoll: false });
@@ -383,7 +398,18 @@ bot.on('message', async (msg) => {
     try {
       markUserRolled(telegramId);
       // Process the dice roll through the common logic
-      await processDiceRoll(telegramId, username, result);
+      const finalOutcome = await processDiceRoll(telegramId, username, result);
+      
+      // Send the outcome to Telegram chat
+      const DICE_FACES = { 1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅' };
+      const outcome = DICE_FACES[finalOutcome] || '❓';
+      
+      await bot.sendMessage(
+        chatId,
+        `${outcome} *${username}* rolled and got: **${finalOutcome}**`,
+        { parse_mode: 'Markdown' }
+      );
+      console.log(`✅ Sent outcome message to chat: ${finalOutcome}`);
     } catch (err) {
       console.error('Dice roll error:', err);
       // Silent error - don't spam Telegram chat
