@@ -260,6 +260,65 @@ bot.onText(/\/start/, async (msg) => {
   }
 });
 
+// /debug command - show detailed debugging info
+bot.onText(/\/debug/, async (msg) => {
+  const chatId = msg.chat.id;
+  const telegramId = String(msg.from.id);
+  const username = msg.from.username || msg.from.first_name || 'Player';
+
+  try {
+    console.log(`\n${'═'.repeat(60)}`);
+    console.log(`🔍 DEBUG INFO FOR USER: ${username} (${telegramId})`);
+    console.log(`${'═'.repeat(60)}`);
+    
+    // Try to find user by telegramId
+    console.log(`\n1️⃣  Searching by telegramId field...`);
+    const q1 = db.collection('users').where('telegramId', '==', String(telegramId));
+    const snapshot1 = await q1.get();
+    
+    if (!snapshot1.empty) {
+      console.log(`✅ FOUND by telegramId query`);
+      snapshot1.docs.forEach((doc, i) => {
+        const data = doc.data();
+        console.log(`   Document ${i}: ${doc.id}`);
+        console.log(`   - telegramId: ${data.telegramId}`);
+        console.log(`   - outcomeQueue: [${(data.outcomeQueue || []).join(',')}]`);
+        console.log(`   - username: ${data.username}`);
+      });
+    } else {
+      console.log(`❌ NOT FOUND by telegramId query`);
+    }
+    
+    // Try to find user by document ID = telegramId
+    console.log(`\n2️⃣  Searching by document ID (telegramId as doc ID)...`);
+    const docRef = db.collection('users').doc(String(telegramId));
+    const docSnap = await docRef.get();
+    
+    if (docSnap.exists) {
+      const data = docSnap.data();
+      console.log(`✅ FOUND by document ID`);
+      console.log(`   - telegramId field: ${data.telegramId}`);
+      console.log(`   - outcomeQueue: [${(data.outcomeQueue || []).join(',')}]`);
+      console.log(`   - username: ${data.username}`);
+    } else {
+      console.log(`❌ NOT FOUND by document ID`);
+    }
+    
+    // List all users
+    console.log(`\n3️⃣  All users in database...`);
+    const allUsersSnap = await db.collection('users').get();
+    console.log(`Total documents: ${allUsersSnap.size}`);
+    allUsersSnap.docs.forEach((doc) => {
+      const data = doc.data();
+      console.log(`   - Doc ID: ${doc.id}, telegramId: ${data.telegramId}, queue: [${(data.outcomeQueue || []).join(',')}]`);
+    });
+    
+    console.log(`${'═'.repeat(60)}\n`);
+  } catch (err) {
+    console.error('Debug error:', err);
+  }
+});
+
 // /queue command - check if user has outcome queue set
 bot.onText(/\/queue/, async (msg) => {
   const chatId = msg.chat.id;
