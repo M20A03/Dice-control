@@ -101,10 +101,15 @@ export default function AdminPage() {
       if (!snapshot.empty) {
         const userData = snapshot.docs[0].data();
         const savedQueue = userData.outcomeQueue || [];
-        console.log(`📋 FIREBASE VERIFICATION for ${telegramId}:`, savedQueue);
-        toast.success(`✅ Saved queue: ${savedQueue.map(n => DICE_FACES[n] || n).join(' → ')} (${savedQueue.join(',')})`);
+        const docId = snapshot.docs[0].id;
+        console.log(`📋 FIREBASE VERIFICATION for ${telegramId}:`, userData);
+        console.log(`   - Document ID: ${docId}`);
+        console.log(`   - Stored Queue: [${savedQueue.join(',')}]`);
+        console.log(`   - Full user data:`, userData);
+        toast.success(`✅ Found! Queue: ${savedQueue.map(n => DICE_FACES[n] || n).join(' → ')} (${savedQueue.join(',')})`);
       } else {
-        toast.error('❌ User not found in Firebase');
+        console.log(`❌ NO USER FOUND for telegramId=${telegramId}`);
+        toast.error(`❌ User not found! No data saved for Telegram ID: ${telegramId}`);
       }
     } catch (err) {
       console.error('Verify error:', err);
