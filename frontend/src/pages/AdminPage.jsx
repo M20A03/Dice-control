@@ -69,10 +69,17 @@ export default function AdminPage() {
       await setDoc(userRef, { 
         nextOutcome: outcomeValue,
         telegramId: String(telegramId),
+        lastSetAt: new Date(),
       }, { merge: true });
       
-      toast.success(`✅ Next roll outcome set to ${DICE_FACES[outcomeValue]} for Telegram ID ${telegramId}`);
-      console.log(`✅ AdminPage: Set nextOutcome=${outcomeValue} for uid=${uid}`);
+      console.log(`✅ AdminPage: Saved to Firebase`);
+      console.log(`   Document ID: ${uid}`);
+      console.log(`   Telegram ID: ${telegramId}`);
+      console.log(`   Next Outcome: ${outcomeValue} ${DICE_FACES[outcomeValue]}`);
+      
+      toast.success(`✅ Set to ${DICE_FACES[outcomeValue]} (Doc: ${uid.substring(0, 8)}...)`);
+      setTelegramUrlOrId('');
+      setSingleOutcome(3);
       setTelegramUrlOrId('');
       setSingleOutcome(3);
     } catch (err) {

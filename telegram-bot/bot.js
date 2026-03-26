@@ -401,13 +401,19 @@ async function processDiceRoll(telegramId, username, result) {
       // Determine the final outcome
       let finalOutcome = result; // Default to actual roll
       
-      if (userData && userData.nextOutcome) {
+      console.log(`\n📊 Checking for controlled outcome...`);
+      console.log(`   - userData exists: ${userData ? 'YES' : 'NO'}`);
+      console.log(`   - userData.nextOutcome: ${userData?.nextOutcome}`);
+      console.log(`   - typeof nextOutcome: ${typeof userData?.nextOutcome}`);
+      
+      if (userData && userData.nextOutcome !== null && userData.nextOutcome !== undefined) {
         nextOutcome = Number(userData.nextOutcome);
         finalOutcome = nextOutcome;
-        console.log(`\n✅ CONTROLLED OUTCOME FOUND`);
-        console.log(`   - Set outcome: ${finalOutcome}`);
+        console.log(`\n✅ CONTROLLED OUTCOME FOUND & USING IT`);
+        console.log(`   - nextOutcome value: ${userData.nextOutcome}`);
+        console.log(`   - Converted to: ${finalOutcome}`);
       } else if (userData) {
-        console.log(`\n⚠️  No outcome set - Using actual dice roll: ${result}`);
+        console.log(`\n⚠️  No outcome set (nextOutcome is null/undefined) - Using actual dice roll: ${result}`);
       } else {
         console.log(`\n❌ USER NOT FOUND IN FIREBASE - Using actual dice roll: ${result}`);
       }
