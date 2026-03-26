@@ -260,7 +260,7 @@ bot.onText(/\/start/, async (msg) => {
   }
 });
 
-/debug command - show detailed debugging info
+// /debug command - show detailed debugging info
 bot.onText(/\/debug/, async (msg) => {
   const chatId = msg.chat.id;
   const telegramId = String(msg.from.id);
