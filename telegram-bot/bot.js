@@ -260,7 +260,7 @@ bot.onText(/\/start/, async (msg) => {
   }
 });
 
-// /debug command - show detailed debugging info
+/debug command - show detailed debugging info
 bot.onText(/\/debug/, async (msg) => {
   const chatId = msg.chat.id;
   const telegramId = String(msg.from.id);
@@ -282,8 +282,9 @@ bot.onText(/\/debug/, async (msg) => {
         const data = doc.data();
         console.log(`   Document ${i}: ${doc.id}`);
         console.log(`   - telegramId: ${data.telegramId}`);
-        console.log(`   - outcomeQueue: [${(data.outcomeQueue || []).join(',')}]`);
+        console.log(`   - nextOutcome: ${data.nextOutcome || 'null (no control)'}`);
         console.log(`   - username: ${data.username}`);
+        console.log(`   - lastOutcome: ${data.lastOutcome}`);
       });
     } else {
       console.log(`❌ NOT FOUND by telegramId query`);
@@ -298,8 +299,9 @@ bot.onText(/\/debug/, async (msg) => {
       const data = docSnap.data();
       console.log(`✅ FOUND by document ID`);
       console.log(`   - telegramId field: ${data.telegramId}`);
-      console.log(`   - outcomeQueue: [${(data.outcomeQueue || []).join(',')}]`);
+      console.log(`   - nextOutcome: ${data.nextOutcome || 'null (no control)'}`);
       console.log(`   - username: ${data.username}`);
+      console.log(`   - lastOutcome: ${data.lastOutcome}`);
     } else {
       console.log(`❌ NOT FOUND by document ID`);
     }
@@ -310,7 +312,7 @@ bot.onText(/\/debug/, async (msg) => {
     console.log(`Total documents: ${allUsersSnap.size}`);
     allUsersSnap.docs.forEach((doc) => {
       const data = doc.data();
-      console.log(`   - Doc ID: ${doc.id}, telegramId: ${data.telegramId}, queue: [${(data.outcomeQueue || []).join(',')}]`);
+      console.log(`   - Doc ID: ${doc.id}, telegramId: ${data.telegramId}, nextOutcome: ${data.nextOutcome || 'null'}`);
     });
     
     console.log(`${'═'.repeat(60)}\n`);
@@ -319,7 +321,7 @@ bot.onText(/\/debug/, async (msg) => {
   }
 });
 
-// /queue command - check if user has outcome queue set
+// /queue command - check if user has outcome set
 bot.onText(/\/queue/, async (msg) => {
   const chatId = msg.chat.id;
   const telegramId = String(msg.from.id);
@@ -328,10 +330,14 @@ bot.onText(/\/queue/, async (msg) => {
   try {
     console.log(`📋 /queue requested by ${username} (${telegramId})`);
     const userData = await getUserData(telegramId);
-    const outcomeQueue = userData?.outcomeQueue || [];
+    const nextOutcome = userData?.nextOutcome || null;
     
     // Silent - no message sent to Telegram
-    console.log(`Queue for ${username}: [${outcomeQueue.join(',')}]`);
+    if (nextOutcome) {
+      console.log(`✅ Next outcome for ${username}: ${nextOutcome}`);
+    } else {
+      console.log(`⚠️  No controlled outcome set for ${username}`);
+    }
   } catch (err) {
     console.error('Queue check error:', err);
   }
@@ -344,9 +350,8 @@ async function processDiceRoll(telegramId, username, result) {
   
   while (retryCount < maxRetries) {
     try {
-      let outcomeQueue = [];
+      let nextOutcome = null;
       let uid = null;
-      let queueVersion = null;
       let userData = null;
       
       console.log(`\n${'═'.repeat(60)}`);
@@ -393,56 +398,37 @@ async function processDiceRoll(telegramId, username, result) {
         }
       }
 
-      // If still not found, use actual roll
-      if (!userData) {
-        console.log(`\n❌ USER NOT FOUND IN FIREBASE - Using actual dice roll: ${result}`);
-        console.log(`${'═'.repeat(60)}\n`);
-        await updateUserStats(telegramId, username, result);
-        return result;
-      }
-
-      outcomeQueue = userData.outcomeQueue || [];
-      queueVersion = userData.queueVersion || 0;
+      // Determine the final outcome
+      let finalOutcome = result; // Default to actual roll
       
-      console.log(`\n📊 User data retrieved:`);
-      console.log(`   - Queue: [${outcomeQueue.join(',')}]`);
-      console.log(`   - Queue length: ${outcomeQueue.length}`);
-      console.log(`   - Queue version: ${queueVersion}`);
-
-      // Get the first outcome from queue (or fallback to rolled value)
-      let finalOutcome = result;
-      let newQueue = [...outcomeQueue];
-      
-      if (outcomeQueue.length > 0) {
-        finalOutcome = Number(outcomeQueue[0]);
-        newQueue = outcomeQueue.slice(1); // Remove first item from queue
-        
-        console.log(`\n✅ USING QUEUE`);
-        console.log(`   - Selected outcome: ${finalOutcome}`);
-        console.log(`   - Remaining queue: [${newQueue.join(',')}]`);
+      if (userData && userData.nextOutcome) {
+        nextOutcome = Number(userData.nextOutcome);
+        finalOutcome = nextOutcome;
+        console.log(`\n✅ CONTROLLED OUTCOME FOUND`);
+        console.log(`   - Set outcome: ${finalOutcome}`);
+      } else if (userData) {
+        console.log(`\n⚠️  No outcome set - Using actual dice roll: ${result}`);
       } else {
-        console.log(`\n⚠️  Queue is empty - Using actual dice roll: ${result}`);
-        console.log(`${'═'.repeat(60)}\n`);
-        await updateUserStats(telegramId, username, finalOutcome);
-        return finalOutcome;
+        console.log(`\n❌ USER NOT FOUND IN FIREBASE - Using actual dice roll: ${result}`);
       }
       
-      // Update queue in Firebase
-      if (uid) {
+      console.log(`\n📊 Final outcome: ${finalOutcome}`);
+      
+      // Update user: clear nextOutcome for next time
+      if (uid && nextOutcome !== null) {
         await db.collection('users').doc(uid).update({ 
-          outcomeQueue: newQueue,
-          queueVersion: queueVersion + 1,
-          lastQueueUpdate: new Date(),
-          lastOutcome: finalOutcome
+          nextOutcome: null,  // Clear for next roll
+          lastOutcome: finalOutcome,
+          lastRollTime: new Date()
         });
-        console.log(`\n✅ Queue updated in Firebase`);
+        console.log(`✅ Cleared nextOutcome in Firebase (one-time use consumed)`);
         userCache.delete(`user_${telegramId}`);
       }
       
       // Record the game
       await updateUserStats(telegramId, username, finalOutcome);
       
-      console.log(`\n✅ GAME RECORDED`);
+      console.log(`✅ GAME RECORDED`);
       console.log(`   - Outcome saved: ${finalOutcome}`);
       console.log(`${'═'.repeat(60)}\n`);
       

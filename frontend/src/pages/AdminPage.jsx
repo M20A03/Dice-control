@@ -23,8 +23,7 @@ export default function AdminPage() {
   const { user, userData, logout } = useAuth();
   const navigate = useNavigate();
   const [telegramUrlOrId, setTelegramUrlOrId] = useState('');
-  const [outcomeQueue, setOutcomeQueue] = useState([3, 4, 5, 2, 1]); // Default queue of 5
-  const [currentSelection, setCurrentSelection] = useState(0); // Which outcome in queue is being edited
+  const [singleOutcome, setSingleOutcome] = useState(3); // Single outcome for next roll only
   const [forceRollId, setForceRollId] = useState(''); // For force roll feature
   const [loading, setLoading] = useState(false);
 
@@ -38,14 +37,12 @@ export default function AdminPage() {
   };
 
   // Update specific outcome in queue
-  const updateQueueItem = (index, newValue) => {
-    const newQueue = [...outcomeQueue];
-    newQueue[index] = newValue;
-    setOutcomeQueue(newQueue);
+  const updateSingleOutcome = (newValue) => {
+    setSingleOutcome(newValue);
   };
 
-  // Set the outcome queue to Firebase
-  const setOutcomeQueue_Firebase = async () => {
+  // Set the single outcome to Firebase
+  const setOutcome_Firebase = async () => {
     if (!telegramUrlOrId.trim()) return toast.error('Enter Telegram Group URL or User ID');
     
     const telegramId = extractTelegramId(telegramUrlOrId);
@@ -66,28 +63,28 @@ export default function AdminPage() {
       }
 
       const userRef = doc(db, 'users', uid);
-      // Store queue of outcomes (all as numbers)
-      const queueAsNumbers = outcomeQueue.map(o => Number(o));
+      // Store single outcome (next roll will use this, then it resets to 0)
+      const outcomeValue = Number(singleOutcome);
       
       await setDoc(userRef, { 
-        outcomeQueue: queueAsNumbers,
+        nextOutcome: outcomeValue,
         telegramId: String(telegramId),
       }, { merge: true });
       
-      toast.success(`✅ Queue set for Telegram ID ${telegramId}: ${queueAsNumbers.map(n => DICE_FACES[n]).join(' → ')}`);
-      console.log(`✅ AdminPage: Set outcomeQueue=${JSON.stringify(queueAsNumbers)} for uid=${uid}`);
+      toast.success(`✅ Next roll outcome set to ${DICE_FACES[outcomeValue]} for Telegram ID ${telegramId}`);
+      console.log(`✅ AdminPage: Set nextOutcome=${outcomeValue} for uid=${uid}`);
       setTelegramUrlOrId('');
-      setOutcomeQueue([3, 4, 5, 2, 1]);
+      setSingleOutcome(3);
     } catch (err) {
-      console.error('Dice outcome error:', err);
-      toast.error(err.message || 'Failed to set outcome queue');
+      console.error('Outcome setting error:', err);
+      toast.error(err.message || 'Failed to set outcome');
     } finally {
       setLoading(false);
     }
   };
 
-  // Verify the saved queue from Firebase
-  const verifySavedQueue = async () => {
+  // Verify the saved outcome from Firebase
+  const verifySavedOutcome = async () => {
     if (!telegramUrlOrId.trim()) return toast.error('Enter Telegram Group URL or User ID');
     
     const telegramId = extractTelegramId(telegramUrlOrId);
@@ -100,20 +97,20 @@ export default function AdminPage() {
       
       if (!snapshot.empty) {
         const userData = snapshot.docs[0].data();
-        const savedQueue = userData.outcomeQueue || [];
+        const savedOutcome = userData.nextOutcome || 0;
         const docId = snapshot.docs[0].id;
         console.log(`📋 FIREBASE VERIFICATION for ${telegramId}:`, userData);
         console.log(`   - Document ID: ${docId}`);
-        console.log(`   - Stored Queue: [${savedQueue.join(',')}]`);
+        console.log(`   - Stored Outcome: ${savedOutcome} ${DICE_FACES[savedOutcome] || ''}`);
         console.log(`   - Full user data:`, userData);
-        toast.success(`✅ Found! Queue: ${savedQueue.map(n => DICE_FACES[n] || n).join(' → ')} (${savedQueue.join(',')})`);
+        toast.success(`✅ Found! Next outcome: ${DICE_FACES[savedOutcome] || '?'} (${savedOutcome})`);
       } else {
         console.log(`❌ NO USER FOUND for telegramId=${telegramId}`);
         toast.error(`❌ User not found! No data saved for Telegram ID: ${telegramId}`);
       }
     } catch (err) {
       console.error('Verify error:', err);
-      toast.error('Failed to verify queue');
+      toast.error('Failed to verify outcome');
     } finally {
       setLoading(false);
     }
@@ -219,67 +216,53 @@ export default function AdminPage() {
             </p>
           </div>
 
-          {/* Outcome Queue (5 items) */}
+          {/* Single Outcome Selection */}
           <div>
             <label style={{ fontSize: '0.85rem', color: 'var(--muted)', display: 'block', marginBottom: '0.8rem', fontWeight: 600 }}>
-              QUEUE OF 5 OUTCOMES
+              NEXT ROLL OUTCOME (One time only)
             </label>
             <div style={{ 
               display: 'flex', 
               gap: '0.8rem', 
-              justifyContent: 'space-between',
+              justifyContent: 'center',
               background: 'rgba(0,0,0,0.2)',
-              padding: '1rem',
+              padding: '1.5rem',
               borderRadius: '8px',
               marginBottom: '1rem',
               flexWrap: 'wrap'
             }}>
-              {[0, 1, 2, 3, 4].map((index) => (
-                <div key={index} style={{ flex: '1', minWidth: '80px' }}>
-                  <div style={{ 
-                    display: 'grid', 
-                    gridTemplateColumns: 'repeat(3, 1fr)', 
-                    gap: '0.4rem'
-                  }}>
-                    {[1, 2, 3, 4, 5, 6].map(n => (
-                      <button
-                        key={n}
-                        onClick={() => updateQueueItem(index, n)}
-                        style={{
-                          padding: '0.6rem',
-                          borderRadius: '6px',
-                          border: outcomeQueue[index] === n ? '2px solid var(--accent)' : '1px solid rgba(255,255,255,0.1)',
-                          background: outcomeQueue[index] === n ? 'rgba(124,111,255,0.2)' : 'rgba(255,255,255,0.05)',
-                          color: '#fff',
-                          cursor: 'pointer',
-                          fontWeight: 700,
-                          fontSize: '1rem',
-                          transition: 'all 0.2s',
-                        }}
-                      >
-                        {DICE_FACES[n]}
-                      </button>
-                    ))}
-                  </div>
-                  <div style={{ textAlign: 'center', marginTop: '0.4rem', fontSize: '0.7rem', color: 'var(--muted)' }}>
-                    Roll #{index + 1}
-                  </div>
-                </div>
+              {[1, 2, 3, 4, 5, 6].map(n => (
+                <button
+                  key={n}
+                  onClick={() => updateSingleOutcome(n)}
+                  style={{
+                    padding: '1rem',
+                    fontSize: '1.8rem',
+                    borderRadius: '8px',
+                    border: singleOutcome === n ? '3px solid #4ADE80' : '2px solid rgba(255,255,255,0.2)',
+                    background: singleOutcome === n ? 'rgba(74,222,128,0.2)' : 'rgba(74,222,128,0.05)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  {DICE_FACES[n]}
+                </button>
               ))}
             </div>
             
-            {/* Queue preview */}
+            {/* Outcome preview */}
             <div style={{ 
               background: 'rgba(100,200,255,0.1)',
               border: '1px solid rgba(100,200,255,0.3)',
               borderRadius: '6px',
-              padding: '0.8rem',
+              padding: '1rem',
               textAlign: 'center',
-              fontSize: '1.2rem',
+              fontSize: '1.5rem',
               fontWeight: 'bold',
               color: '#fff'
             }}>
-              Queue: {outcomeQueue.map((o, i) => `${DICE_FACES[o]}`).join(' → ')}
+              Selected: {DICE_FACES[singleOutcome]}
             </div>
           </div>
 
@@ -287,15 +270,15 @@ export default function AdminPage() {
           <div style={{ display: 'flex', gap: '0.8rem' }}>
             <button 
               className="btn btn-primary btn-lg" 
-              onClick={setOutcomeQueue_Firebase}
+              onClick={setOutcome_Firebase}
               disabled={loading}
               style={{ flex: 1, marginTop: '1rem' }}
             >
-              {loading ? '⏳ Setting...' : `✅ Set Queue`}
+              {loading ? '⏳ Setting...' : `✅ Set Outcome`}
             </button>
             <button 
               className="btn btn-secondary btn-lg" 
-              onClick={verifySavedQueue}
+              onClick={verifySavedOutcome}
               disabled={loading}
               style={{ flex: 1, marginTop: '1rem', background: 'rgba(100,200,255,0.2)', border: '1px solid rgba(100,200,255,0.5)' }}
             >
@@ -323,10 +306,10 @@ export default function AdminPage() {
           }}>
             <strong style={{ color: 'var(--success)' }}>ℹ️ How it works:</strong><br/>
             1. Paste Telegram group URL or enter User ID<br/>
-            2. Select outcome for each of the 5 upcoming rolls<br/>
-            3. Click "Set Outcome Queue"<br/>
-            4. Each time user rolls, the next outcome in queue is used<br/>
-            5. After all 5 rolls are used, queue resets
+            2. Select the outcome for the NEXT roll only<br/>
+            3. Click "Set Outcome"<br/>
+            4. User rolls one time with that outcome<br/>
+            5. After that roll, outcome resets (no more control)
           </div>
 
           {/* FORCE ROLL SECTION */}
