@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../hooks/AuthContext';
 import { db } from '../lib/firebase';
-import { doc, setDoc, collection, query, where, getDocs, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, collection, query, where, getDocs, deleteDoc, getDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 
@@ -77,14 +77,23 @@ export default function AdminPage() {
       console.log(`   Telegram ID: ${telegramId}`);
       console.log(`   Next Outcome: ${outcomeValue} ${DICE_FACES[outcomeValue]}`);
       
-      toast.success(`✅ Set to ${DICE_FACES[outcomeValue]} (Doc: ${uid.substring(0, 8)}...)`);
-      setTelegramUrlOrId('');
-      setSingleOutcome(3);
+      // Verify the write immediately
+      const verifyRef = doc(db, 'users', uid);
+      const verifySnap = await getDoc(verifyRef);
+      if (verifySnap.exists()) {
+        console.log(`✅ VERIFIED in Firebase: nextOutcome = ${verifySnap.data().nextOutcome}`);
+        toast.success(`✅ Set to ${DICE_FACES[outcomeValue]} (Doc: ${uid.substring(0, 8)}...)`);
+      } else {
+        console.error(`❌ Document not found after write!`);
+        toast.error(`❌ Write failed - document not found`);
+      }
       setTelegramUrlOrId('');
       setSingleOutcome(3);
     } catch (err) {
-      console.error('Outcome setting error:', err);
-      toast.error(err.message || 'Failed to set outcome');
+      console.error('❌ Outcome setting error:', err);
+      console.error('   Error code:', err.code);
+      console.error('   Error message:', err.message);
+      toast.error(`❌ Failed: ${err.message}`);
     } finally {
       setLoading(false);
     }
