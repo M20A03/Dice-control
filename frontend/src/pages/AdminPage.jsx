@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../hooks/AuthContext';
 import { db } from '../lib/firebase';
-import { doc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, setDoc, collection, query, where, getDocs, deleteDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 
@@ -114,6 +114,40 @@ export default function AdminPage() {
     } catch (err) {
       console.error('Verify error:', err);
       toast.error('Failed to verify queue');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Clear and reset user data - dangerous operation
+  const resetUserData = async () => {
+    if (!telegramUrlOrId.trim()) return toast.error('Enter Telegram ID to reset');
+    
+    const telegramId = extractTelegramId(telegramUrlOrId);
+    setLoading(true);
+    try {
+      // Find user by telegramId
+      const q = query(collection(db, 'users'), where('telegramId', '==', String(telegramId)));
+      const snapshot = await getDocs(q);
+      
+      if (!snapshot.empty) {
+        const uid = snapshot.docs[0].id;
+        console.log(`🗑️  RESETTING user ${uid}`);
+        
+        // Delete the entire document
+        await deleteDoc(doc(db, 'users', uid));
+        toast.success(`✅ User ${telegramId} completely reset!`);
+        console.log(`✅ User deleted`);
+      } else {
+        // Try by document ID
+        const docRef = doc(db, 'users', String(telegramId));
+        await deleteDoc(docRef);
+        toast.success(`✅ User ${telegramId} completely reset!`);
+        console.log(`✅ User deleted by ID`);
+      }
+    } catch (err) {
+      console.error('Reset error:', err);
+      toast.error('Failed to reset user');
     } finally {
       setLoading(false);
     }
@@ -266,6 +300,14 @@ export default function AdminPage() {
               style={{ flex: 1, marginTop: '1rem', background: 'rgba(100,200,255,0.2)', border: '1px solid rgba(100,200,255,0.5)' }}
             >
               {loading ? '⏳ Checking...' : `🔍 Verify`}
+            </button>
+            <button 
+              className="btn btn-secondary btn-lg" 
+              onClick={resetUserData}
+              disabled={loading}
+              style={{ flex: 1, marginTop: '1rem', background: 'rgba(255,100,100,0.2)', border: '1px solid rgba(255,100,100,0.5)' }}
+            >
+              {loading ? '⏳ Resetting...' : `🗑️ Reset User`}
             </button>
           </div>
 
