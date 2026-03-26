@@ -68,10 +68,31 @@ const bot = new TelegramBot(TOKEN, { polling: true });
 console.log('✅ Telegram bot started - monitoring groups for Dice commands');
 console.log(`🤖 Bot Token: ${TOKEN.substring(0, 10)}...`);
 
+// Error handlers
+bot.on('polling_error', (error) => {
+  console.error('❌ Polling error:', error.message);
+});
+
+bot.on('error', (error) => {
+  console.error('❌ Bot error:', error.message);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('❌ UNCAUGHT EXCEPTION:', error.message);
+  console.error(error.stack);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ UNHANDLED REJECTION:', reason);
+});
+
 // Log all incoming messages for debugging
 bot.on('message', (msg) => {
   if (msg.text) {
     console.log(`📨 Message from ${msg.from.username || msg.from.first_name}: "${msg.text}"`);
+  } else if (msg.dice) {
+    console.log(`🎲 Dice from ${msg.from.username || msg.from.first_name}: ${msg.dice.value}`);
   }
 });
 
@@ -114,11 +135,6 @@ db.collection('otpVerification').onSnapshot((snapshot) => {
       }
     }
   });
-});
-
-// Polling error handler
-bot.on('polling_error', (error) => {
-  console.error('❌ Polling error:', error.message);
 });
 
 // Listen for force roll requests from admin panel
@@ -571,12 +587,6 @@ bot.onText(/\/help/, (msg) => {
     `💡 Link your Telegram on the website to control dice outcomes!`,
     { parse_mode: 'Markdown' }
   );
-});
-
-// Error handling
-bot.on('polling_error', (error) => {
-  console.error('❌ Polling error:', error.message);
-  // Bot will automatically retry
 });
 
 process.on('uncaughtException', (error) => {
