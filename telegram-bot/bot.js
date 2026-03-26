@@ -401,10 +401,14 @@ async function processDiceRoll(telegramId, username, result) {
       // Determine the final outcome
       let finalOutcome = result; // Default to actual roll
       
+      console.log(`\n📊 FULL USER DATA OBJECT:`);
+      console.log(JSON.stringify(userData, null, 2));
+      
       console.log(`\n📊 Checking for controlled outcome...`);
       console.log(`   - userData exists: ${userData ? 'YES' : 'NO'}`);
       console.log(`   - userData.nextOutcome: ${userData?.nextOutcome}`);
       console.log(`   - typeof nextOutcome: ${typeof userData?.nextOutcome}`);
+      console.log(`   - Object.keys(userData): ${userData ? Object.keys(userData).join(', ') : 'N/A'}`);
       
       if (userData && userData.nextOutcome !== null && userData.nextOutcome !== undefined) {
         nextOutcome = Number(userData.nextOutcome);
