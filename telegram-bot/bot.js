@@ -68,31 +68,10 @@ const bot = new TelegramBot(TOKEN, { polling: true });
 console.log('✅ Telegram bot started - monitoring groups for Dice commands');
 console.log(`🤖 Bot Token: ${TOKEN.substring(0, 10)}...`);
 
-// Error handlers
-bot.on('polling_error', (error) => {
-  console.error('❌ Polling error:', error.message);
-});
-
-bot.on('error', (error) => {
-  console.error('❌ Bot error:', error.message);
-});
-
-process.on('uncaughtException', (error) => {
-  console.error('❌ UNCAUGHT EXCEPTION:', error.message);
-  console.error(error.stack);
-  process.exit(1);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ UNHANDLED REJECTION:', reason);
-});
-
 // Log all incoming messages for debugging
 bot.on('message', (msg) => {
   if (msg.text) {
     console.log(`📨 Message from ${msg.from.username || msg.from.first_name}: "${msg.text}"`);
-  } else if (msg.dice) {
-    console.log(`🎲 Dice from ${msg.from.username || msg.from.first_name}: ${msg.dice.value}`);
   }
 });
 
@@ -137,62 +116,13 @@ db.collection('otpVerification').onSnapshot((snapshot) => {
   });
 });
 
-// Listen for force roll requests from admin panel
-console.log('👀 Listening for force roll requests...');
-db.collection('users').onSnapshot((snapshot) => {
-  snapshot.docChanges().forEach(async (change) => {
-    if (change.type === 'modified' || change.type === 'added') {
-      const userData = change.doc.data();
-      const telegramId = userData.telegramId;
-      const username = userData.username || 'Player';
-      
-      // Check if forceRoll flag is set
-      if (userData.forceRoll === true && telegramId) {
-        console.log(`\n🚀 FORCE ROLL TRIGGERED for user ${username} (${telegramId})`);
-        
-        try {
-          // Simulate a random dice roll (1-6)
-          const result = Math.floor(Math.random() * 6) + 1;
-          console.log(`🎲 Generated random roll: ${result}`);
-          
-          // Process the roll through normal logic
-          const finalOutcome = await processDiceRoll(String(telegramId), username, result);
-          
-          // SILENT - No message sent to Telegram
-          console.log(`✅ Force roll outcome recorded silently: ${finalOutcome}`);
-          
-          // Clear the forceRoll flag
-          await db.collection('users').doc(change.doc.id).update({ forceRoll: false });
-          console.log(`✅ Cleared forceRoll flag for uid=${change.doc.id}`);
-          userCache.delete(`user_${telegramId}`);
-        } catch (err) {
-          console.error(`❌ Error processing force roll: ${err.message}`);
-        }
-      }
-    }
-  });
+// Polling error handler
+bot.on('polling_error', (error) => {
+  console.error('❌ Polling error:', error.message);
 });
 
 // In-memory cache for quick access
 const userCache = new Map();
-
-// Per-user cooldown to prevent race conditions (ms)
-const rollThrottler = new Map();
-const MIN_ROLL_DELAY = 500; // Minimum 500ms between rolls for same user
-
-// Check if user can roll (throttle rapid rolls)
-function canUserRoll(telegramId) {
-  const lastRoll = rollThrottler.get(String(telegramId));
-  if (!lastRoll || Date.now() - lastRoll > MIN_ROLL_DELAY) {
-    return true;
-  }
-  return false;
-}
-
-// Mark user as having rolled
-function markUserRolled(telegramId) {
-  rollThrottler.set(String(telegramId), Date.now());
-}
 
 // Fetch user data from Firebase
 async function getUserData(telegramId) {
@@ -230,29 +160,47 @@ async function getUserData(telegramId) {
 }
 
 // Update user stats in Firebase
-async function updateUserStats(telegramId, username, outcome) {
+async function updateUserStats(telegramId, username, result, isWin) {
   try {
     const userData = await getUserData(telegramId);
     const stats = userData?.stats || {
       totalGames: 0,
+      wins: 0,
+      losses: 0,
+      coins: 0,
+      currentStreak: 0,
+      bestStreak: 0,
+      winRate: 0,
     };
 
     const uid = userData?.uid || String(telegramId);
+    const newWins = stats.wins + (isWin ? 1 : 0);
+    const newLosses = stats.losses + (isWin ? 0 : 1);
+    const newStreak = isWin ? (stats.currentStreak || 0) + 1 : 0;
+    const newBestStreak = Math.max(stats.bestStreak || 0, newStreak);
+    const coinsEarned = isWin ? 10 : 0;
 
     await db.collection('users').doc(uid).set({
       telegramId: String(telegramId),
       username: username || 'Player',
       stats: {
         totalGames: (stats.totalGames || 0) + 1,
+        wins: newWins,
+        losses: newLosses,
+        coins: (stats.coins || 0) + coinsEarned,
+        currentStreak: newStreak,
+        bestStreak: newBestStreak,
+        winRate: Math.round((newWins / ((stats.totalGames || 0) + 1)) * 100),
       },
     }, { merge: true });
 
-    // Save game record with the forced outcome
+    // Save game record
     await db.collection('games').add({
       firebaseUid: uid,
       telegramId: String(telegramId),
       username: username || 'Player',
-      outcome,
+      result,
+      isWin,
       platform: 'telegram_group',
       createdAt: new Date(),
     });
@@ -265,258 +213,113 @@ async function updateUserStats(telegramId, username, outcome) {
   }
 }
 
-// /start command
-bot.onText(/\/start/, async (msg) => {
-  try {
-    console.log(`📨 /start received from ${msg.from.id}`);
-    // SILENT - no message sent
-    console.log(`✅ User ${msg.from.username || msg.from.first_name} started bot`);
-  } catch (err) {
-    console.error(`❌ /start error:`, err.message);
-  }
-});
-
-// /debug command - show detailed debugging info
-bot.onText(/\/debug/, async (msg) => {
-  const chatId = msg.chat.id;
-  const telegramId = String(msg.from.id);
-  const username = msg.from.username || msg.from.first_name || 'Player';
-
-  try {
-    console.log(`\n${'═'.repeat(60)}`);
-    console.log(`🔍 DEBUG INFO FOR USER: ${username} (${telegramId})`);
-    console.log(`${'═'.repeat(60)}`);
-    
-    // Try to find user by telegramId
-    console.log(`\n1️⃣  Searching by telegramId field...`);
-    const q1 = db.collection('users').where('telegramId', '==', String(telegramId));
-    const snapshot1 = await q1.get();
-    
-    if (!snapshot1.empty) {
-      console.log(`✅ FOUND by telegramId query`);
-      snapshot1.docs.forEach((doc, i) => {
-        const data = doc.data();
-        console.log(`   Document ${i}: ${doc.id}`);
-        console.log(`   - telegramId: ${data.telegramId}`);
-        console.log(`   - nextOutcome: ${data.nextOutcome || 'null (no control)'}`);
-        console.log(`   - username: ${data.username}`);
-        console.log(`   - lastOutcome: ${data.lastOutcome}`);
-      });
-    } else {
-      console.log(`❌ NOT FOUND by telegramId query`);
-    }
-    
-    // Try to find user by document ID = telegramId
-    console.log(`\n2️⃣  Searching by document ID (telegramId as doc ID)...`);
-    const docRef = db.collection('users').doc(String(telegramId));
-    const docSnap = await docRef.get();
-    
-    if (docSnap.exists) {
-      const data = docSnap.data();
-      console.log(`✅ FOUND by document ID`);
-      console.log(`   - telegramId field: ${data.telegramId}`);
-      console.log(`   - nextOutcome: ${data.nextOutcome || 'null (no control)'}`);
-      console.log(`   - username: ${data.username}`);
-      console.log(`   - lastOutcome: ${data.lastOutcome}`);
-    } else {
-      console.log(`❌ NOT FOUND by document ID`);
-    }
-    
-    // List all users
-    console.log(`\n3️⃣  All users in database...`);
-    const allUsersSnap = await db.collection('users').get();
-    console.log(`Total documents: ${allUsersSnap.size}`);
-    allUsersSnap.docs.forEach((doc) => {
-      const data = doc.data();
-      console.log(`   - Doc ID: ${doc.id}, telegramId: ${data.telegramId}, nextOutcome: ${data.nextOutcome || 'null'}`);
-    });
-    
-    console.log(`${'═'.repeat(60)}\n`);
-  } catch (err) {
-    console.error('Debug error:', err);
-  }
-});
-
-// /queue command - check if user has outcome set
-bot.onText(/\/queue/, async (msg) => {
-  const chatId = msg.chat.id;
-  const telegramId = String(msg.from.id);
-  const username = msg.from.username || msg.from.first_name || 'Player';
-
-  try {
-    console.log(`📋 /queue requested by ${username} (${telegramId})`);
-    const userData = await getUserData(telegramId);
-    const nextOutcome = userData?.nextOutcome || null;
-    
-    // Silent - no message sent to Telegram
-    if (nextOutcome) {
-      console.log(`✅ Next outcome for ${username}: ${nextOutcome}`);
-    } else {
-      console.log(`⚠️  No controlled outcome set for ${username}`);
-    }
-  } catch (err) {
-    console.error('Queue check error:', err);
-  }
-});
-
-// Process a dice roll (shared logic for both message and force roll triggers)
-async function processDiceRoll(telegramId, username, result) {
-  const maxRetries = 3;
-  let retryCount = 0;
+// MAIN HANDLER: Listen for actual dice emoji rolls
+bot.on('message', async (msg) => {
+  if (!msg.dice) return; // Only handle dice rolls
   
-  while (retryCount < maxRetries) {
-    try {
-      let nextOutcome = null;
-      let uid = null;
-      let userData = null;
-      
-      console.log(`\n${'═'.repeat(60)}`);
-      console.log(`🎲 DICE ROLL PROCESSING`);
-      console.log(`${'═'.repeat(60)}`);
-      console.log(`📥 Telegram ID: ${telegramId}`);
-      console.log(`👤 Username: ${username}`);
-      console.log(`🎲 Actual dice value from user: ${result}`);
-      
-      // METHOD 1: Try searching by telegramId field
-      try {
-        console.log(`\n🔍 METHOD 1: Searching by telegramId field...`);
-        const q = db.collection('users').where('telegramId', '==', String(telegramId));
-        const snapshot = await q.get();
-        
-        if (!snapshot.empty) {
-          uid = snapshot.docs[0].id;
-          userData = snapshot.docs[0].data();
-          console.log(`✅ FOUND by field search`);
-          console.log(`   - Document ID: ${uid}`);
-        } else {
-          console.log(`❌ Not found by field search, trying METHOD 2...`);
-        }
-      } catch (e) {
-        console.error(`❌ Field search error: ${e.message}`);
+  const chatId = msg.chat.id;
+  const telegramId = String(msg.from.id);
+  const username = msg.from.username || msg.from.first_name || 'Player';
+  const result = msg.dice.value; // Telegram's actual roll (1-6)
+  
+  console.log(`\n🎲 DICE ROLL from ${username} (${telegramId}): actual=${result}`);
+  
+  try {
+    // Check if user has a controlled outcome set
+    let nextOutcome = null;
+    let uid = null;
+    
+    // Try to find user by telegramId field
+    const q = db.collection('users').where('telegramId', '==', String(telegramId));
+    const snapshot = await q.get();
+    
+    if (!snapshot.empty) {
+      uid = snapshot.docs[0].id;
+      nextOutcome = snapshot.docs[0].data().nextOutcome || null;
+      console.log(`✅ Found user. nextOutcome=${nextOutcome}`);
+    } else {
+      // Fallback: try by doc ID
+      const docRef = await db.collection('users').doc(String(telegramId)).get();
+      if (docRef.exists) {
+        uid = String(telegramId);
+        nextOutcome = docRef.data().nextOutcome || null;
+        console.log(`✅ Found user by ID. nextOutcome=${nextOutcome}`);
       }
-
-      // METHOD 2: Try searching by document ID
-      if (!userData) {
-        try {
-          console.log(`\n🔍 METHOD 2: Searching by document ID...`);
-          const docRef = db.collection('users').doc(String(telegramId));
-          const docSnap = await docRef.get();
-          
-          if (docSnap.exists) {
-            uid = String(telegramId);
-            userData = docSnap.data();
-            console.log(`✅ FOUND by document ID search`);
-          } else {
-            console.log(`❌ Not found by document ID search`);
-          }
-        } catch (e) {
-          console.error(`❌ Document ID search error: ${e.message}`);
-        }
-      }
-
-      // Determine the final outcome
-      let finalOutcome = result; // Default to actual roll
+    }
+    
+    // Determine final outcome
+    let finalOutcome = result; // Default: use actual roll
+    if (nextOutcome && nextOutcome > 0 && nextOutcome <= 6) {
+      finalOutcome = Number(nextOutcome);
+      console.log(`✅ USING CONTROLLED OUTCOME: ${finalOutcome}`);
       
-      console.log(`\n📊 FULL USER DATA OBJECT:`);
-      console.log(JSON.stringify(userData, null, 2));
-      
-      console.log(`\n📊 Checking for controlled outcome...`);
-      console.log(`   - userData exists: ${userData ? 'YES' : 'NO'}`);
-      console.log(`   - userData.nextOutcome: ${userData?.nextOutcome}`);
-      console.log(`   - typeof nextOutcome: ${typeof userData?.nextOutcome}`);
-      console.log(`   - Object.keys(userData): ${userData ? Object.keys(userData).join(', ') : 'N/A'}`);
-      
-      if (userData && userData.nextOutcome !== null && userData.nextOutcome !== undefined) {
-        nextOutcome = Number(userData.nextOutcome);
-        finalOutcome = nextOutcome;
-        console.log(`\n✅ CONTROLLED OUTCOME FOUND & USING IT`);
-        console.log(`   - nextOutcome value: ${userData.nextOutcome}`);
-        console.log(`   - Converted to: ${finalOutcome}`);
-      } else if (userData) {
-        console.log(`\n⚠️  No outcome set (nextOutcome is null/undefined) - Using actual dice roll: ${result}`);
-      } else {
-        console.log(`\n❌ USER NOT FOUND IN FIREBASE - Using actual dice roll: ${result}`);
-      }
-      
-      console.log(`\n📊 Final outcome: ${finalOutcome}`);
-      
-      // Update user: clear nextOutcome for next time
-      if (uid && nextOutcome !== null) {
+      // Clear outcome after use
+      if (uid) {
         await db.collection('users').doc(uid).update({ 
-          nextOutcome: null,  // Clear for next roll
+          nextOutcome: null,
           lastOutcome: finalOutcome,
           lastRollTime: new Date()
         });
-        console.log(`✅ Cleared nextOutcome in Firebase (one-time use consumed)`);
-        userCache.delete(`user_${telegramId}`);
+        console.log(`✅ Cleared nextOutcome`);
       }
-      
-      // Record the game
-      await updateUserStats(telegramId, username, finalOutcome);
-      
-      console.log(`✅ GAME RECORDED`);
-      console.log(`   - Outcome saved: ${finalOutcome}`);
-      console.log(`${'═'.repeat(60)}\n`);
-      
-      return finalOutcome;
-      
-    } catch (err) {
-      retryCount++;
-      console.error(`\n❌ ERROR on attempt ${retryCount}: ${err.message}`);
-      
-      if (retryCount >= maxRetries) {
-        console.error(`❌ FAILED after ${maxRetries} attempts - Using actual roll: ${result}`);
-        console.log(`${'═'.repeat(60)}\n`);
-        try {
-          await updateUserStats(telegramId, username, result);
-        } catch (e) {
-          console.error(`Failed to record stats: ${e.message}`);
-        }
-        return result;
-      }
-      
-      // Wait before retry
-      await new Promise(resolve => setTimeout(resolve, 100 * retryCount));
+    } else {
+      console.log(`⚠️ No controlled outcome. Using actual roll: ${result}`);
     }
-  }
-}
-
-// Listen for user's dice rolls (user sends dice emoji, Telegram animates it on their side)
-bot.on('message', async (msg) => {
-  // Check if the message contains a dice emoji
-  if (msg.dice) {
-    const chatId = msg.chat.id;
-    const telegramId = String(msg.from.id);
-    const username = msg.from.username || msg.from.first_name || 'Player';
-    const result = msg.dice.value; // The dice value (1-6) from user's roll
-
-    console.log(`🎲 User ${username} (${telegramId}) rolled: ${result}`);
-
-    // Throttle rapid rolls from same user to prevent race conditions
-    if (!canUserRoll(telegramId)) {
-      console.log(`⏳ Throttling - user rolling too fast. Next roll allowed in ${MIN_ROLL_DELAY}ms`);
-      return; // Skip this roll
-    }
-
-    try {
-      markUserRolled(telegramId);
-      // Process the dice roll through the common logic
-      const finalOutcome = await processDiceRoll(telegramId, username, result);
-      
-      // SILENT - No message sent to Telegram
-      console.log(`✅ Outcome recorded silently: ${finalOutcome}`);
-    } catch (err) {
-      console.error('Dice roll error:', err);
-      // Silent error - don't spam Telegram chat
-    }
-  }
-  
-  // Handle text commands - SILENT
-  if (msg.text && msg.text.toLowerCase().includes('dice') && !msg.dice) {
-    // Silent - no message sent
-    console.log(`Text "dice" received from ${msg.from.username || msg.from.first_name}`);
+    
+    // Record game
+    await db.collection('games').add({
+      telegramId: String(telegramId),
+      username: username,
+      outcome: finalOutcome,
+      actualRoll: result,
+      createdAt: new Date(),
+      controlled: nextOutcome !== null ? true : false
+    });
+    
+    // Send reply showing the outcome
+    const emoji = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'][finalOutcome - 1];
+    await bot.sendMessage(
+      chatId,
+      `✅ Outcome: ${emoji} *${finalOutcome}*${nextOutcome ? ' (controlled)' : ''}`,
+      { parse_mode: 'Markdown' }
+    );
+    
+    console.log(`✅ Recorded: final=${finalOutcome}, controlled=${nextOutcome !== null}\n`);
+    
+  } catch (err) {
+    console.error(`❌ Dice roll error: ${err.message}`);
+    bot.sendMessage(chatId, `❌ Error: ${err.message}`).catch(() => {});
   }
 });
+
+// /debug command
+bot.onText(/\/debug/, async (msg) => {
+  const chatId = msg.chat.id;
+  const telegramId = String(msg.from.id);
+  
+  try {
+    const q = db.collection('users').where('telegramId', '==', String(telegramId));
+    const snapshot = await q.get();
+    
+    if (!snapshot.empty) {
+      const userData = snapshot.docs[0].data();
+      const nextOutcome = userData.nextOutcome || 'not set';
+      await bot.sendMessage(
+        chatId,
+        `🔍 Debug Info:\n` +
+        `ID: ${snapshot.docs[0].id}\n` +
+        `Next Outcome: ${nextOutcome}`,
+        { parse_mode: 'Markdown' }
+      );
+    } else {
+      await bot.sendMessage(chatId, '❌ User not found in database');
+    }
+  } catch (err) {
+    console.error(`Debug error: ${err.message}`);
+    bot.sendMessage(chatId, `❌ Debug error: ${err.message}`).catch(() => {});
+  }
+});
+
 
 // /stats command
 bot.onText(/\/stats/, async (msg) => {
@@ -587,6 +390,12 @@ bot.onText(/\/help/, (msg) => {
     `💡 Link your Telegram on the website to control dice outcomes!`,
     { parse_mode: 'Markdown' }
   );
+});
+
+// Error handling
+bot.on('polling_error', (error) => {
+  console.error('❌ Polling error:', error.message);
+  // Bot will automatically retry
 });
 
 process.on('uncaughtException', (error) => {
